@@ -92,6 +92,10 @@ export function github(on: On) {
     openFailure: undefined as string | undefined,
     /** When set, every GraphQL request answers this HTTP status. */
     failWith: undefined as number | undefined,
+    /** When set, every GraphQL mutation answers this error message. */
+    mutationError: undefined as string | undefined,
+    /** Called as GitHub receives each mutation, before it answers: to look at the panel meanwhile. */
+    whileMutating: undefined as (() => Promise<void>) | undefined,
     /** The nodes answered to any search for merged pull requests (see `mergedPullRequestNode`); none by default. */
     merged: [] as object[],
     /** When set, the search for merged pull requests alone answers this HTTP status. */
@@ -107,7 +111,7 @@ export function github(on: On) {
      * (`behind`, `identical`, `ahead`, `diverged`); a compare nobody canned is a 404.
      */
     compares: {} as Record<string, string>,
-    /** The requests of the open pull requests' fetch, in order. */
+    /** The requests of the open pull requests' fetch, and the mutations, in order. */
     requests: [] as GitHubRequest[],
     /** The requests of the merged pull requests' fetch (the search and the compares), in order. */
     mergedRequests: [] as GitHubRequest[],
@@ -157,6 +161,11 @@ export function github(on: On) {
     }
     if (fake.failWith !== undefined) {
       return { value: { status: fake.failWith, ok: false, headers: {}, text: '{"message":"Server Error"}' } }
+    }
+    if (body.query?.startsWith('mutation')) {
+      await fake.whileMutating?.()
+      const answer = fake.mutationError === undefined ? { data: { pullRequest: {} } } : { errors: [{ message: fake.mutationError }] }
+      return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify(answer) } }
     }
     if (compare) {
       const [, repo, base, head] = compare
@@ -237,6 +246,7 @@ export function pullRequestNode(number: number, facts: {
   reviewDecision?: string | null
   checks?: string | null
   isPrivate?: boolean
+  headRefOid?: string
   author?: string
   /** The viewer's latest review state, e.g. 'DISMISSED'. */
   myReview?: string | null
@@ -254,6 +264,7 @@ export function pullRequestNode(number: number, facts: {
     mergeStateStatus: facts.mergeStateStatus ?? 'CLEAN',
     reviewDecision: facts.reviewDecision === undefined ? 'APPROVED' : facts.reviewDecision,
     createdAt: facts.createdAt ?? '2026-10-13T00:00:00Z',
+    headRefOid: facts.headRefOid ?? `sha${number}`,
     author: { login: facts.author ?? 'me' },
     repository: { nameWithOwner: repo, isPrivate: facts.isPrivate ?? false, owner: { login: repo.split('/')[0] } },
     commits: { nodes: [{ commit: { statusCheckRollup: facts.checks === null ? null : { state: facts.checks ?? 'SUCCESS' } } }] },

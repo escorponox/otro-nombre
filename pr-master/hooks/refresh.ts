@@ -1,7 +1,16 @@
-import { atom, update } from 'claude-code'
+import { atom, read, update } from 'claude-code'
 import type { EngineInterface, HttpResponse, On, Timer } from 'claude-code'
 
-import type { MergedPullRequestItem, PullRequestItem, RefreshProblem, Snapshot, SnapshotCache, TeamSwitch } from '../types'
+import type {
+  ActionProgress,
+  MergedPullRequestItem,
+  PullRequestItem,
+  RefreshProblem,
+  Snapshot,
+  SnapshotCache,
+  TeamSwitch,
+} from '../types'
+import { ARM_MS, pressOf } from './domain/confirmation'
 import { toItem } from './domain/item'
 import { isDue } from './domain/polling'
 import type { OpenPullRequest } from './domain/pull-request'
@@ -21,9 +30,11 @@ import { VIEWER_TEAMS, reviewRequestsOf, reviewRequestsQuery, teamsOf } from './
 import type { ReviewRequestsData, ViewerTeamsData } from './github/review-requests'
 import { REVIEW_THREADS, needsThreads, withUnresolvedThreads } from './github/threads'
 import type { ReviewThreadsData } from './github/threads'
+import { writeRequestOf } from './github/write-actions'
+import type { WriteRequest } from './github/write-actions'
 import type { Options } from './options'
 import { PANE_ID } from './pane'
-import { EMPTY_SNAPSHOT } from './snapshot'
+import { EMPTY_SNAPSHOT, findItem } from './snapshot'
 
 const GH_TIMEOUT_MS = 10_000
 /** The `$.store` key of the snapshot cache shared by the person's sessions. */
@@ -39,6 +50,9 @@ const TEAM_SWITCH = 'team:'
 
 // The engine's scan only accepts atoms declared in the file that reads and writes them.
 const snapshot = atom({ plugin: 'pr-master', key: 'snapshot' } as const, EMPTY_SNAPSHOT)
+/** Drawn by `pane.tsx`. */
+const armed = atom({ plugin: 'pr-master', key: 'armed' } as const, null as { element: string; at: number } | null)
+const progress = atom({ plugin: 'pr-master', key: 'progress' } as const, {} as Record<string, ActionProgress>)
 
 /**
  * The token, obtained once per module load. A module variable is fine here: it is never drawn,
@@ -54,6 +68,9 @@ let polling: Promise<void> = Promise.resolve()
 let fetching: Promise<void> | undefined
 /** The `fetchedAt` of the cache this session last showed, so an unchanged cache is not shown again. */
 let shownFetchedAt: number | undefined
+
+/** Disarms the armed write action once its three seconds are up; a reload drops it with the module. */
+let disarmTimer: Timer | undefined
 
 /**
  * Keeps the snapshot the pane draws and the status row: a poller started with the session
@@ -86,9 +103,25 @@ export function registerRefresh(on: On, options: Options) {
     return next(e)
   })
 
-  // The Review tab's team switches, keyed `team:<org/team>`.
+  // The Review tab's team switches, keyed `team:<org/team>`, and the write actions on a pull
+  // request, keyed `<kind>:<item id>` (see `pressWriteAction`).
   on('ui.press', { plugin: 'pr-master' }, async ($, e, next) => {
-    if (e.element.startsWith(TEAM_SWITCH)) await switchTeam($, options, e.element.slice(TEAM_SWITCH.length))
+    if (e.element.startsWith(TEAM_SWITCH)) {
+      await switchTeam($, options, e.element.slice(TEAM_SWITCH.length))
+    } else {
+      const [kind, id] = splitKey(e.element)
+      const item = findItem(await read($, snapshot), id)
+      const request = item && writeRequestOf(kind, item)
+      if (item && request) await pressWriteAction($, options, e.element, kind, item, request)
+    }
+    return next(e)
+  })
+
+  // A focus move disarms the armed write action. pane.tsx hooks `ui.focus` on `{ requestId }`;
+  // this matcher keeps the two hooks apart.
+  on('ui.focus', { component: 'Pane', requestId: 'pr-master' }, async ($, e, next) => {
+    const held = await read($, armed)
+    if (held && held.element !== e.element) await disarm($)
     return next(e)
   })
 }
@@ -233,6 +266,59 @@ async function switchTeam($: EngineInterface, options: Options, slug: string): P
     teams: shot.teams.map(team => (team.slug === slug ? { ...team, isOn: !team.isOn } : team)),
   }))
   void refresh($, options)
+}
+
+/**
+ * A press on a write action (squash merge, update branch, close): a Button keyed `<kind>:<item id>`
+ * whose kind has a mutation in `github/write-actions.ts`. Write actions live here, beside the token
+ * and the refresh they need. The first press arms the Button (`items.tsx` draws it as
+ * "Confirm …?"); a second press within `ARM_MS` runs the action; the clock, a focus move or
+ * another write action's press disarms it.
+ */
+async function pressWriteAction(
+  $: EngineInterface,
+  options: Options,
+  element: string,
+  kind: string,
+  item: PullRequestItem,
+  request: WriteRequest,
+): Promise<void> {
+  const now = await $.clock.now()
+  if (pressOf(await read($, armed), element, now) === 'arm') {
+    disarmTimer?.cancel()
+    await update($, armed, () => ({ element, at: now }))
+    disarmTimer = $.clock.after(ARM_MS, () => void disarm($))
+    return
+  }
+  await disarm($)
+  // One write action at a time on a pull request.
+  if ((await read($, progress))[item.id]?.phase === 'running') return
+  void runWriteAction($, options, kind, item, request)
+}
+
+/** Runs a confirmed write action, shows its progress on the item, then refreshes the lists. */
+async function runWriteAction($: EngineInterface, options: Options, kind: string, item: PullRequestItem, request: WriteRequest) {
+  const show = (shown: ActionProgress) => update($, progress, all => ({ ...all, [item.id]: shown }))
+  await show({ kind, phase: 'running' })
+  try {
+    await graphql($, options, request.query, request.variables)
+    await show({ kind, phase: 'done' })
+  } catch (error) {
+    await show({ kind, phase: 'failed', problem: error instanceof Error ? error.message : String(error) })
+  }
+  await refresh($, options)
+}
+
+async function disarm($: EngineInterface): Promise<void> {
+  disarmTimer?.cancel()
+  disarmTimer = undefined
+  await update($, armed, () => null)
+}
+
+/** `merge:PR_12` -> `['merge', 'PR_12']`; a key without a colon has no item id. */
+function splitKey(element: string): [string, string] {
+  const colon = element.indexOf(':')
+  return colon < 0 ? [element, ''] : [element.slice(0, colon), element.slice(colon + 1)]
 }
 
 /** `prs` with their unresolved review threads, read by a second query for the ones that need them. */
