@@ -12,6 +12,19 @@
       "options": ["off", "2w", "1m", "3m", "6m"],
       "default": "1m"
     },
+    "hiddenOrgs": {
+      "type": "string",
+      "multiple": true,
+      "title": "Hidden organisations",
+      "description": "Organisations (or users) whose pull requests the panel never shows, by login",
+      "default": []
+    },
+    "showPrivate": {
+      "type": "boolean",
+      "title": "Show private repositories",
+      "description": "Show pull requests in private repositories",
+      "default": true
+    },
     "githubToken": {
       "type": "string",
       "title": "GitHub token",

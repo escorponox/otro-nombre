@@ -18,6 +18,10 @@ export interface OpenPullRequest {
   url: string
   /** `owner/name`. */
   repository: string
+  /** The repository owner's login. */
+  owner: string
+  /** Whether the repository is private. */
+  isPrivate: boolean
   /** The author's login. */
   author: string
   /** ISO 8601. */
@@ -28,6 +32,11 @@ export interface OpenPullRequest {
   reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null
   /** The head commit's checks. */
   checks: ChecksState
+  /**
+   * The login of who opened each unresolved review thread (its first comment's author).
+   * Read only while the merge state is BLOCKED; empty otherwise.
+   */
+  unresolvedThreadAuthors: string[]
 }
 
 /** Whether a pull request's head commit checks failed. */

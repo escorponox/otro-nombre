@@ -4,7 +4,7 @@ import type { ChecksState, OpenPullRequest } from '../domain/pull-request'
 export const OPEN_PULL_REQUEST_FIELDS = `
   id number title url isDraft mergeable mergeStateStatus reviewDecision createdAt
   author { login }
-  repository { nameWithOwner }
+  repository { nameWithOwner isPrivate owner { login } }
   commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }`
 
 /** An open pull request node as `OPEN_PULL_REQUEST_FIELDS` returns it. */
@@ -20,7 +20,7 @@ export interface OpenPullRequestNode {
   createdAt: string
   /** `null` for a deleted account. */
   author: { login: string } | null
-  repository: { nameWithOwner: string }
+  repository: { nameWithOwner: string; isPrivate: boolean; owner: { login: string } }
   commits: { nodes: { commit: { statusCheckRollup: { state: Exclude<ChecksState, null> } | null } }[] }
 }
 
@@ -57,6 +57,8 @@ export function toOpenPullRequest(node: OpenPullRequestNode): OpenPullRequest {
     title: node.title,
     url: node.url,
     repository: node.repository.nameWithOwner,
+    owner: node.repository.owner.login,
+    isPrivate: node.repository.isPrivate,
     author: node.author?.login ?? 'ghost',
     createdAt: node.createdAt,
     isDraft: node.isDraft,
@@ -64,5 +66,7 @@ export function toOpenPullRequest(node: OpenPullRequestNode): OpenPullRequest {
     mergeState: node.mergeStateStatus,
     reviewDecision: node.reviewDecision,
     checks: node.commits.nodes[0]?.commit.statusCheckRollup?.state ?? null,
+    // Read by a second query, and only for blocked pull requests (see `threads.ts`).
+    unresolvedThreadAuthors: [],
   }
 }
