@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { MY_PULL_REQUESTS_QUERY, SURFACES, drawnItem, github, paneMount, pullRequestNode, reviewThread, runPrs, startSession, world } from './world'
+import { MY_PULL_REQUESTS_QUERY, SURFACES, drawnItem, exceptReviewRequests, github, paneMount, pullRequestNode, reviewThread, runPrs, startSession, world } from './world'
 
 const NOW = Date.parse('2026-10-16T12:00:00Z')
 const BLOCKED = { mergeStateStatus: 'BLOCKED', reviewDecision: 'REVIEW_REQUIRED' } as const
@@ -47,7 +47,7 @@ test('review threads are read by node id, only for the blocked My pull requests'
   await clock.settle()
   const ui = await $.ui.mount(paneMount('terminal'))
 
-  expect(gh.requests).toHaveLength(2)
+  expect(exceptReviewRequests(gh.requests)).toHaveLength(2)
   expect(gh.requests[1]?.variables).toEqual({ ids: ['PR_40', 'PR_44'] })
   expect(gh.requests[1]?.query).toContain('reviewThreads')
   expect(await drawnItem(ui, 'PR_43')).toMatchObject({ dot: 'success', meta: 'Ready to merge · 3d' })
@@ -63,5 +63,5 @@ test('with no blocked My pull request, no review threads are read', async ($, on
   await runPrs($)
   await clock.settle()
 
-  expect(gh.requests).toHaveLength(1)
+  expect(exceptReviewRequests(gh.requests)).toHaveLength(1)
 })

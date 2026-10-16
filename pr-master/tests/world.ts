@@ -92,6 +92,8 @@ export function github(on: On) {
     argvs: [] as string[][],
     /** Called on each GraphQL request before it is answered: what happens elsewhere while the request is in flight. */
     whileInFlight: undefined as (() => void) | undefined,
+    /** The teams of the viewer's organisations the viewer belongs to, as member or as admin. */
+    teams: [] as FakeTeam[],
   }
   on('process.run', ($, e) => {
     fake.argvs.push([...e.argv])
@@ -124,6 +126,17 @@ export function github(on: On) {
     if (fake.failWith !== undefined) {
       return { value: { status: fake.failWith, ok: false, headers: {}, text: '{"message":"Server Error"}' } }
     }
+    if (body.query?.includes('query ViewerTeams')) {
+      return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ data: viewerTeams(fake.teams) }) } }
+    }
+    const aliased = aliasedSearches(body.query ?? '')
+    if (aliased.length > 0) {
+      const data = Object.fromEntries(aliased.map(({ alias, variable, first }) => {
+        const nodes = fake.searches[String(body.variables?.[variable])] ?? []
+        return [alias, { issueCount: nodes.length, nodes: nodes.slice(0, first) }]
+      }))
+      return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ data }) } }
+    }
     const ids = body.variables?.ids as string[] | undefined
     const nodes = fake.searches[String(body.variables?.q)]
     const answer = ids
@@ -134,6 +147,37 @@ export function github(on: On) {
     return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify(answer) } }
   })
   return fake
+}
+
+/** The requests other than the Review request ones (the viewer's teams and their searches), in order. */
+export function exceptReviewRequests(requests: GitHubRequest[]): GitHubRequest[] {
+  return requests.filter(r => !r.query.includes('query ViewerTeams') && !r.query.includes('query ReviewRequests'))
+}
+
+/** A team the viewer is in: `slug` is `org/team`. */
+export interface FakeTeam {
+  slug: string
+  role: 'MEMBER' | 'ADMIN'
+}
+
+/** The `ViewerTeams` answer: one organisation node per org, its teams split by the viewer's role. */
+function viewerTeams(teams: FakeTeam[]) {
+  const orgs = [...new Set(teams.map(team => team.slug.split('/')[0]))]
+  const teamsOf = (org: string | undefined, role: FakeTeam['role']) => ({
+    nodes: teams.filter(team => team.role === role && team.slug.startsWith(`${org}/`)).map(team => ({ combinedSlug: team.slug })),
+  })
+  return {
+    viewer: { organizations: { nodes: orgs.map(org => ({ login: org, member: teamsOf(org, 'MEMBER'), admin: teamsOf(org, 'ADMIN') })) } },
+  }
+}
+
+/** The searches of a query holding several aliased ones: `alias: search(query: $variable, type: ISSUE, first: N)`. */
+function aliasedSearches(query: string) {
+  return [...query.matchAll(/(\w+): search\(query: \$(\w+), type: ISSUE, first: (\d+)\)/g)].map(([, alias, variable, first]) => ({
+    alias: alias ?? '',
+    variable: variable ?? '',
+    first: Number(first),
+  }))
 }
 
 /** A pull request node as GitHub's GraphQL search returns it: an approved, clean, public one unless `facts` say otherwise. */
@@ -147,6 +191,11 @@ export function pullRequestNode(number: number, facts: {
   reviewDecision?: string | null
   checks?: string | null
   isPrivate?: boolean
+  author?: string
+  /** The viewer's latest review state, e.g. 'DISMISSED'. */
+  myReview?: string | null
+  /** The teams (`org/team`) its timeline says were asked to review. */
+  requestedTeams?: string[]
 } = {}) {
   const repo = facts.repo ?? 'acme/api'
   return {
@@ -159,9 +208,11 @@ export function pullRequestNode(number: number, facts: {
     mergeStateStatus: facts.mergeStateStatus ?? 'CLEAN',
     reviewDecision: facts.reviewDecision === undefined ? 'APPROVED' : facts.reviewDecision,
     createdAt: facts.createdAt ?? '2026-10-13T00:00:00Z',
-    author: { login: 'me' },
+    author: { login: facts.author ?? 'me' },
     repository: { nameWithOwner: repo, isPrivate: facts.isPrivate ?? false, owner: { login: repo.split('/')[0] } },
     commits: { nodes: [{ commit: { statusCheckRollup: facts.checks === null ? null : { state: facts.checks ?? 'SUCCESS' } } }] },
+    viewerLatestReview: facts.myReview ? { state: facts.myReview } : null,
+    timelineItems: { nodes: (facts.requestedTeams ?? []).map(slug => ({ requestedReviewer: { combinedSlug: slug } })) },
   }
 }
 

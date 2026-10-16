@@ -1,16 +1,20 @@
 import { atom, update } from 'claude-code'
 import type { EngineInterface, On, Timer } from 'claude-code'
 
-import type { RefreshProblem, Snapshot, SnapshotCache } from '../types'
+import type { PullRequestItem, RefreshProblem, Snapshot, SnapshotCache, TeamSwitch } from '../types'
 import { toItem } from './domain/item'
 import { isDue } from './domain/polling'
 import type { OpenPullRequest } from './domain/pull-request'
 import { readiness } from './domain/readiness'
+import { reviewState } from './domain/review-state'
+import { reviewWindowStart } from './domain/review-window'
 import { statusRow } from './domain/status-row'
 import { visibleOnly } from './domain/visibility'
 import { GH_TOKEN_COMMANDS, NoToken, graphqlData, graphqlRequest } from './github/client'
 import { MY_PULL_REQUESTS, OPEN_PULL_REQUESTS_SEARCH, openPullRequestsOf } from './github/open-pull-requests'
 import type { OpenPullRequestsSearchData } from './github/open-pull-requests'
+import { VIEWER_TEAMS, reviewRequestsOf, reviewRequestsQuery, teamsOf } from './github/review-requests'
+import type { ReviewRequestsData, ViewerTeamsData } from './github/review-requests'
 import { REVIEW_THREADS, needsThreads, withUnresolvedThreads } from './github/threads'
 import type { ReviewThreadsData } from './github/threads'
 import type { Options } from './options'
@@ -22,6 +26,12 @@ const GH_TIMEOUT_MS = 10_000
 const CACHE_KEY = 'snapshot-cache'
 /** How often the session looks at the shared cache; `isDue` decides whether it fetches. */
 const POLL_TICK_MS = 15_000
+
+/** The `$.store` key of the teams the person switched off (`org/team` list). */
+const TEAMS_OFF = 'teamsOff'
+
+/** The key prefix of a team switch Button in the pane. */
+const TEAM_SWITCH = 'team:'
 
 // The engine's scan only accepts atoms declared in the file that reads and writes them.
 const snapshot = atom({ plugin: 'pr-master', key: 'snapshot' } as const, EMPTY_SNAPSHOT)
@@ -71,6 +81,12 @@ export function registerRefresh(on: On, options: Options) {
     void refresh($, options)
     return next(e)
   })
+
+  // The Review tab's team switches, keyed `team:<org/team>`.
+  on('ui.press', { plugin: 'pr-master' }, async ($, e, next) => {
+    if (e.element.startsWith(TEAM_SWITCH)) await switchTeam($, options, e.element.slice(TEAM_SWITCH.length))
+    return next(e)
+  })
 }
 
 /**
@@ -110,9 +126,10 @@ async function fetchIntoCache($: EngineInterface, options: Options): Promise<voi
   try {
     const data = await graphql<OpenPullRequestsSearchData>($, options, OPEN_PULL_REQUESTS_SEARCH, { q: MY_PULL_REQUESTS })
     const prs = await withThreads($, options, visibleOnly(openPullRequestsOf(data), options))
+    const { review, teams } = await reviewRequests($, options)
     const now = await $.clock.now()
     const mine = prs.map(pr => toItem(pr, readiness(pr), now, options.staleThreshold))
-    cache = { snapshot: { mine, updatedAt: now, problem: null }, fetchedAt: now, failures: 0 }
+    cache = { snapshot: { mine, review, teams, updatedAt: now, problem: null }, fetchedAt: now, failures: 0 }
   } catch (error) {
     const last = await readCache($)
     cache = {
@@ -141,6 +158,41 @@ async function isPaneOpen($: EngineInterface): Promise<boolean> {
 /** The shared cache, or undefined when no session has written one. */
 async function readCache($: EngineInterface): Promise<SnapshotCache | undefined> {
   return ((await $.store.get(CACHE_KEY)) ?? undefined) as SnapshotCache | undefined
+}
+
+/**
+ * The Review requests of the person's teams switched on, plus their dismissed approvals, with
+ * every team's switch and count. Two queries: the teams, then every team's search at once.
+ */
+async function reviewRequests($: EngineInterface, options: Options): Promise<{ review: PullRequestItem[]; teams: TeamSwitch[] }> {
+  const off = await teamsOff($)
+  const teamsData = await graphql<ViewerTeamsData>($, options, VIEWER_TEAMS, {})
+  const teams = teamsOf(teamsData, options).map(slug => ({ slug, isOn: !off.includes(slug) }))
+  const now = await $.clock.now()
+  const search = reviewRequestsQuery(teams, reviewWindowStart(now, options.reviewWindow), options)
+  const data = await graphql<ReviewRequestsData>($, options, search.query, search.variables)
+  const { requests, counts } = reviewRequestsOf(data, teams)
+  return {
+    review: visibleOnly(requests, options).map(pr => toItem(pr, reviewState(pr), now, options.staleThreshold)),
+    teams: teams.map((team, index) => ({ ...team, count: counts[index] ?? 0 })),
+  }
+}
+
+/** The teams the person switched off, from the store shared by every session; any other team is on. */
+async function teamsOff($: EngineInterface): Promise<string[]> {
+  const stored = await $.store.get(TEAMS_OFF)
+  return Array.isArray(stored) ? stored.filter(slug => typeof slug === 'string') : []
+}
+
+/** Switches a team on or off for every session, shows the switch at once, and refreshes the lists. */
+async function switchTeam($: EngineInterface, options: Options, slug: string): Promise<void> {
+  const off = await teamsOff($)
+  await $.store.set(TEAMS_OFF, off.includes(slug) ? off.filter(other => other !== slug) : [...off, slug])
+  await update($, snapshot, shot => ({
+    ...shot,
+    teams: shot.teams.map(team => (team.slug === slug ? { ...team, isOn: !team.isOn } : team)),
+  }))
+  void refresh($, options)
 }
 
 /** `prs` with their unresolved review threads, read by a second query for the ones that need them. */

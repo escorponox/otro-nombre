@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On } from 'claude-code'
 
-import type { Snapshot, Tab } from '../types'
+import type { Snapshot, Tab, TeamSwitch } from '../types'
 import { clampOffset, offsetShowing, scrolledOffset } from './domain/list-window'
 import { TURN_COLOUR, itemRows, pullRequestItem, wrappedRows } from './items'
 import type { ItemHandlers } from './items'
@@ -120,6 +120,19 @@ export function registerPane(on: On) {
       </Box>
     )
 
+    // The Review tab's team switches; refresh.ts answers their presses (it hooks `ui.press` on `team:` keys).
+    // Buttons apart by a drawn space, not `gap`, which leaves stale cells.
+    const teamSwitches = (
+      <Box key="teams" flexDirection="row" flexWrap="wrap">
+        {shot.teams.flatMap((team, index) => [
+          ...(index > 0 ? [<Text key={`teams:space:${team.slug}`}> </Text>] : []),
+          <Button key={`team:${team.slug}`} variant={team.isOn ? 'primary' : undefined} onPress={() => undefined}>
+            {teamLabel(team)}
+          </Button>,
+        ])}
+      </Box>
+    )
+
     // Header, legend and tabs stay put; only the list box under them grows and clips.
     return (
       <Box flexDirection="column" width={e.props.bodyColumns} height={e.props.scroll.bodyRows} gap={1}>
@@ -127,13 +140,16 @@ export function registerPane(on: On) {
           {header}
           {isLegendShown && legendBox}
           {tabs}
+          {shown === 'review' && shot.teams.length > 0 && teamSwitches}
         </Box>
         <Box key="list" flexDirection="column" flexGrow={1} flexShrink={1} overflow="hidden" gap={1}>
           {offset > 0 && <Text dimColor>{`↑ ${offset} more above`}</Text>}
           {items.length === 0 ? (
             <Text dimColor>No pull requests here.</Text>
           ) : (
-            items.slice(offset).map(item => pullRequestItem({ Box, Text, Button }, item, ITEM_HANDLERS, item.id === focusedId))
+            items.slice(offset).map(item =>
+              pullRequestItem({ Box, Text, Button }, item, ITEM_HANDLERS, { isFocused: item.id === focusedId, showAuthor: shown === 'review' }),
+            )
           )}
         </Box>
         <Box key="footer" flexShrink={0}>
@@ -167,13 +183,14 @@ function registerListScroll(on: On) {
   on('ui.focus', { requestId: PANE_ID }, async ($, e, next) => {
     const shot = await read($, snapshot)
     const isLegendShown = await read($, legend)
-    const items = listOf(shot, await read($, tab))
+    const shown = await read($, tab)
+    const items = listOf(shot, shown)
     const id = e.element?.slice(e.element.indexOf(':') + 1)
     const index = items.findIndex(item => item.id === id)
     await update($, focused, () => items[index]?.id ?? null)
     if (index >= 0) {
-      const heights = items.map(item => itemRows(item, lastBody.columns))
-      const rows = listRows(lastBody, isLegendShown, footerLine(shot, await read($, actionProblem)))
+      const heights = items.map(item => itemRows(item, lastBody.columns, shown === 'review'))
+      const rows = listRows(lastBody, isLegendShown, footerLine(shot, await read($, actionProblem)), teamSwitchesLine(shot, shown))
       await update($, listOffset, offset => offsetShowing(index, { offset: clampOffset(offset, items.length), heights, rows }))
     }
     return next(e)
@@ -189,20 +206,33 @@ const LEGEND_ROWS = 6
 const GAP_ROWS = 1
 
 /**
- * The rows the list box gets in a body: what the fixed block (header, legend, tabs), the refresh
- * line and the blank lines between them leave.
+ * The rows the list box gets in a body: what the fixed block (header, legend, tabs, team switches),
+ * the refresh line and the blank lines between them leave.
  */
-function listRows(body: { rows: number; columns: number }, isLegendShown: boolean, footer: string): number {
-  const fixed = HEADER_ROWS + GAP_ROWS + (isLegendShown ? LEGEND_ROWS + GAP_ROWS : 0) + TABS_ROWS
+function listRows(body: { rows: number; columns: number }, isLegendShown: boolean, footer: string, teamSwitches: string): number {
+  const teamRows = teamSwitches === '' ? 0 : GAP_ROWS + wrappedRows(teamSwitches, body.columns)
+  const fixed = HEADER_ROWS + GAP_ROWS + (isLegendShown ? LEGEND_ROWS + GAP_ROWS : 0) + TABS_ROWS + teamRows
   return body.rows - fixed - GAP_ROWS - GAP_ROWS - wrappedRows(footer, body.columns)
 }
 
 // actions.ts answers the presses on an item's Buttons: it hooks `ui.press`.
 const ITEM_HANDLERS: ItemHandlers = { onOpen: () => undefined }
 
-/** The pull requests a tab lists. Review requests and Merged pull requests are not fetched yet. */
+/** The pull requests a tab lists. Merged pull requests are not fetched yet. */
 function listOf(shot: Snapshot, id: Tab) {
-  return id === 'mine' ? shot.mine : []
+  if (id === 'mine') return shot.mine
+  if (id === 'review') return shot.review
+  return []
+}
+
+/** The team switches' line as drawn in the shown tab, to measure it; '' when not drawn. */
+function teamSwitchesLine(shot: Snapshot, shown: Tab): string {
+  return shown === 'review' ? shot.teams.map(teamLabel).join(' ') : ''
+}
+
+/** A team switch's label: whether it is on, the team and its count. */
+function teamLabel(team: TeamSwitch): string {
+  return `${team.isOn ? '[x]' : '[ ]'} ${team.slug} ${team.count}`
 }
 
 /** The refresh line: the last action's failure, if any, then how the last refresh went. */

@@ -39,6 +39,12 @@ export interface OpenPullRequest {
   unresolvedThreadAuthors: string[]
 }
 
+/** Whether a pull request's head commit checks failed. */
+export const isFailing = (pr: OpenPullRequest) => pr.checks === 'FAILURE' || pr.checks === 'ERROR'
+
+/** Whether a pull request's head commit checks are still running. */
+export const isRunning = (pr: OpenPullRequest) => pr.checks === 'PENDING' || pr.checks === 'EXPECTED'
+
 /** Whose Turn it is, and the label that says why: a Readiness or a Review state. */
 export interface Verdict {
   turn: Turn
