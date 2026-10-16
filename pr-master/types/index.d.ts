@@ -28,10 +28,18 @@ export interface PullRequestItem {
   isBehind: boolean
 }
 
+/** A write action, as in its Button's key `<kind>:<item id>`: squash merge, update branch, close, approve. */
+export type WriteActionKind = 'merge' | 'update' | 'close' | 'approve'
+
+/** An analysis action, as in its Button's key: it runs the Review analysis or the Unblock analysis. */
+export type AnalysisActionKind = 'review-analysis' | 'unblock-analysis'
+
+/** Every action on a pull request's action row, as in its Button's key. */
+export type ActionKind = 'copy' | WriteActionKind | AnalysisActionKind
+
 /** A write action under way or ended on one pull request, drawn on its action row. */
 export interface ActionProgress {
-  /** The action's kind, as in its Button's key (`merge`, `update`, `close`). */
-  kind: string
+  kind: WriteActionKind
   phase: 'running' | 'done' | 'failed'
   /** Why it failed; only when `phase` is `failed`. */
   problem?: string

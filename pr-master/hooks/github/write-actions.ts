@@ -1,4 +1,4 @@
-import type { PullRequestItem } from '../../types'
+import type { PullRequestItem, WriteActionKind } from '../../types'
 
 /** A GraphQL mutation and its variables. */
 export interface WriteRequest {
@@ -25,11 +25,19 @@ const APPROVE = `mutation Approve($id: ID!, $headSha: GitObjectID!) {
   addPullRequestReview(input: { pullRequestId: $id, event: APPROVE, commitOID: $headSha }) { pullRequestReview { id } }
 }`
 
+/** Every write action, as a record so the compiler asks for a new one here. */
+const WRITE_ACTIONS: Record<WriteActionKind, true> = { merge: true, update: true, close: true, approve: true }
+
+/** Whether the action `kind` (as in its Button's key) is a write action. */
+export function isWriteAction(kind: string): kind is WriteActionKind {
+  return Object.hasOwn(WRITE_ACTIONS, kind)
+}
+
 /**
- * The GitHub mutation of the write action `kind` on `item`, or undefined when `kind` is not a
- * write action. To add a write action, add its mutation here and its Button to `items.tsx`.
+ * The GitHub mutation of the write action `kind` on `item`. To add a write action, add its kind
+ * to `WriteActionKind`, its mutation here and its Button to `items.tsx`.
  */
-export function writeRequestOf(kind: string, item: PullRequestItem): WriteRequest | undefined {
+export function writeRequestOf(kind: WriteActionKind, item: PullRequestItem): WriteRequest {
   switch (kind) {
     case 'merge':
       return { query: MERGE, variables: { id: item.id, headSha: item.headSha } }
@@ -39,7 +47,5 @@ export function writeRequestOf(kind: string, item: PullRequestItem): WriteReques
       return { query: CLOSE, variables: { id: item.id } }
     case 'approve':
       return { query: APPROVE, variables: { id: item.id, headSha: item.headSha } }
-    default:
-      return undefined
   }
 }

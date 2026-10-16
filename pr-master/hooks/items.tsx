@@ -1,6 +1,6 @@
 import type { ElementTable } from 'claude-code'
 
-import type { ActionProgress, Analysis, MergedPullRequestItem, PullRequestItem, RunningAnalysis, Tab, Turn } from '../types'
+import type { ActionKind, ActionProgress, Analysis, MergedPullRequestItem, PullRequestItem, RunningAnalysis, Tab, Turn } from '../types'
 import { ANALYSIS_ACTION, ANALYSIS_NAME, isOutOfDate } from './domain/analysis'
 import { shortRefOf } from './domain/format'
 
@@ -57,7 +57,7 @@ interface WriteWords {
  * runs it; `refresh.ts` runs it, with the mutation `github/write-actions.ts` gives for its kind.
  */
 interface Action {
-  kind: string
+  kind: ActionKind
   label: string
   hotkey: string
   appliesTo: (listed: Listed) => boolean

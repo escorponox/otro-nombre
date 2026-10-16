@@ -8,6 +8,7 @@ import type {
   Snapshot,
   SnapshotCache,
   TeamSwitch,
+  WriteActionKind,
 } from '../types'
 import { ancestryKey, ancestryToKeep, isSameAncestry, keptAncestryOf } from './domain/ancestry'
 import type { KeptAncestry } from './domain/ancestry'
@@ -38,7 +39,7 @@ import { VIEWER_TEAMS, reviewRequestsOf, reviewRequestsQuery, teamsOf } from './
 import type { ReviewRequestsData, ViewerTeamsData } from './github/review-requests'
 import { REVIEW_THREADS, needsThreads, withUnresolvedThreads } from './github/threads'
 import type { ReviewThreadsData } from './github/threads'
-import { writeRequestOf } from './github/write-actions'
+import { isWriteAction, writeRequestOf } from './github/write-actions'
 import type { WriteRequest } from './github/write-actions'
 import type { Options } from './options'
 import { PANE_ID } from './pane'
@@ -131,8 +132,7 @@ export function registerRefresh(on: On, options: Options) {
     } else {
       const [kind, id] = splitKey(e.element)
       const item = findOpenItem(await read($, snapshot), id)
-      const request = item && writeRequestOf(kind, item)
-      if (item && request) await pressWriteAction($, options, e.element, kind, item, request)
+      if (item && isWriteAction(kind)) await pressWriteAction($, options, e.element, kind, item, writeRequestOf(kind, item))
     }
     return next(e)
   })
@@ -480,7 +480,7 @@ async function pressWriteAction(
   $: EngineInterface,
   options: Options,
   element: string,
-  kind: string,
+  kind: WriteActionKind,
   item: PullRequestItem,
   request: WriteRequest,
 ): Promise<void> {
@@ -498,7 +498,7 @@ async function pressWriteAction(
 }
 
 /** Runs a confirmed write action, shows its progress on the item, then refreshes the lists. */
-async function runWriteAction($: EngineInterface, options: Options, kind: string, item: PullRequestItem, request: WriteRequest) {
+async function runWriteAction($: EngineInterface, options: Options, kind: WriteActionKind, item: PullRequestItem, request: WriteRequest) {
   const show = (shown: ActionProgress) => update($, progress, all => ({ ...all, [item.id]: shown }))
   await show({ kind, phase: 'running' })
   try {

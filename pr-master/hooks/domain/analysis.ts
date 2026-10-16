@@ -1,11 +1,11 @@
-import type { Analysis, AnalysisKind, PullRequestItem } from '../../types'
+import type { Analysis, AnalysisActionKind, AnalysisKind, PullRequestItem } from '../../types'
 import { QUILL_REVIEWER } from './readiness'
 
 /** What each analysis is called, on its action and its result. */
 export const ANALYSIS_NAME: Record<AnalysisKind, string> = { review: 'Review analysis', unblock: 'Unblock analysis' }
 
 /** The action that runs each analysis: its Button is keyed `<action>:<item id>`. */
-export const ANALYSIS_ACTION: Record<AnalysisKind, string> = { review: 'review-analysis', unblock: 'unblock-analysis' }
+export const ANALYSIS_ACTION: Record<AnalysisKind, AnalysisActionKind> = { review: 'review-analysis', unblock: 'unblock-analysis' }
 
 /** The analysis an action runs; undefined for an action that runs none. */
 export function analysisOfAction(action: string): AnalysisKind | undefined {
