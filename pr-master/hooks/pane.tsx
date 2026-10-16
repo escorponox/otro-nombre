@@ -1,7 +1,10 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On } from 'claude-code'
 
-import type { Tab } from '../types'
+import type { Snapshot, Tab } from '../types'
+import { TURN_COLOUR, pullRequestItem } from './items'
+import type { ItemHandlers } from './items'
+import { EMPTY_SNAPSHOT } from './snapshot'
 
 export const PANE_ID = 'pr-master'
 const PANE_TITLE = 'PR Master'
@@ -9,9 +12,10 @@ const PANE_TITLE = 'PR Master'
 // The engine's scan only accepts atoms declared in the file that reads and writes them.
 const tab = atom({ plugin: 'pr-master', key: 'tab' } as const, 'mine' as Tab)
 const legend = atom({ plugin: 'pr-master', key: 'legend' } as const, false)
+/** Written by `refresh.ts`. */
+const snapshot = atom({ plugin: 'pr-master', key: 'snapshot' } as const, EMPTY_SNAPSHOT)
 
-/** The dot colours, as theme keys. */
-const TURN_COLOUR = { mine: 'error', theirs: 'warning', done: 'success', parked: 'inactive' } as const
+/** The Shipment dot colours, as theme keys. */
 const SHIPMENT_COLOUR = { arrived: 'success', running: 'warning', failed: 'error', unknown: 'inactive' } as const
 
 const TURN_WORDS = { mine: 'Mine', theirs: 'Theirs', done: 'Done', parked: 'Parked' } as const
@@ -41,8 +45,9 @@ export function registerPane(on: On) {
     const { Box, Text, Button } = $.ui.resolve(e)
     const shown = await read($, tab)
     const isLegendShown = await read($, legend)
-    // Until the snapshot arrives every list is empty.
-    const count = (_: Tab) => 0
+    const shot = await read($, snapshot)
+    const count = (id: Tab) => listOf(shot, id).length
+    const items = listOf(shot, shown)
 
     const header = (
       <Box flexDirection="row" justifyContent="space-between">
@@ -99,12 +104,24 @@ export function registerPane(on: On) {
           {isLegendShown && legendBox}
           {tabs}
         </Box>
-        <Box flexDirection="column" flexGrow={1} flexShrink={1} overflow="hidden">
-          <Text dimColor>No pull requests here.</Text>
+        <Box key="list" flexDirection="column" flexGrow={1} flexShrink={1} overflow="hidden" gap={1}>
+          {items.length === 0 ? (
+            <Text dimColor>No pull requests here.</Text>
+          ) : (
+            items.map(item => pullRequestItem({ Box, Text, Button }, item, ITEM_HANDLERS))
+          )}
         </Box>
       </Box>
     )
   })
+}
+
+// Opening a pull request in the browser comes with the action row (ticket 10).
+const ITEM_HANDLERS: ItemHandlers = { onOpen: () => undefined }
+
+/** The pull requests a tab lists. Review requests and Merged pull requests are not fetched yet. */
+function listOf(shot: Snapshot, id: Tab) {
+  return id === 'mine' ? shot.mine : []
 }
 
 /** The engine's pane list is the source of truth: it survives a module reload and a close by the person. */
