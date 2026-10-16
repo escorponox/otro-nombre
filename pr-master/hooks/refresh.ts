@@ -38,7 +38,7 @@ import { writeRequestOf } from './github/write-actions'
 import type { WriteRequest } from './github/write-actions'
 import type { Options } from './options'
 import { PANE_ID } from './pane'
-import { EMPTY_SNAPSHOT, findItem } from './snapshot'
+import { EMPTY_SNAPSHOT, findOpenItem } from './snapshot'
 
 const GH_TIMEOUT_MS = 10_000
 /** The `$.store` key of the snapshot cache shared by the person's sessions. */
@@ -124,7 +124,7 @@ export function registerRefresh(on: On, options: Options) {
       await switchTeam($, options, e.element.slice(TEAM_SWITCH.length))
     } else {
       const [kind, id] = splitKey(e.element)
-      const item = findItem(await read($, snapshot), id)
+      const item = findOpenItem(await read($, snapshot), id)
       const request = item && writeRequestOf(kind, item)
       if (item && request) await pressWriteAction($, options, e.element, kind, item, request)
     }

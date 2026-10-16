@@ -487,19 +487,26 @@ export const PLATFORM_SEARCH =
 
 /**
  * The panel open at `NOW` and mounted on `surface`, showing `tab`: `mine` holds the My pull
- * requests' nodes and `review` the Review requests asked of acme/platform (the person's one team).
- * `store` stands for what other sessions kept.
+ * requests' nodes, `review` the Review requests asked of acme/platform (the person's one team) and
+ * `merged` the Merged pull requests' nodes. `store` stands for what other sessions kept.
  */
 export async function openPanel(
   $: Engine,
   on: On,
   surface: Surface,
-  { mine = [], review, tab = 'mine', store = {} }: { mine?: object[]; review?: object[]; tab?: Tab; store?: Record<string, unknown> } = {},
+  { mine = [], review, merged = [], tab = 'mine', store = {} }: {
+    mine?: object[]
+    review?: object[]
+    merged?: object[]
+    tab?: Tab
+    store?: Record<string, unknown>
+  } = {},
 ) {
   const clock = mock.clock(on, { now: NOW })
   const engine = world(on, { store })
   const gh = github(on)
   gh.searches[MY_PULL_REQUESTS_QUERY] = mine
+  gh.merged = merged
   if (review) {
     gh.teams = [{ slug: 'acme/platform', role: 'MEMBER' }]
     gh.searches[PLATFORM_SEARCH] = review

@@ -155,7 +155,7 @@ export function registerPane(on: On) {
           {items.length === 0 ? (
             <Text dimColor>No pull requests here.</Text>
           ) : shown === 'merged' ? (
-            shot.merged.slice(offset).map(item => mergedPullRequestItem({ Box, Text, Button }, item))
+            shot.merged.slice(offset).map(item => mergedPullRequestItem({ Box, Text, Button }, item, { isFocused: item.id === focusedId }))
           ) : (
             openListOf(shot, shown).slice(offset).map(item =>
               pullRequestItem({ Box, Text, Button }, item, {

@@ -1,7 +1,6 @@
-import type { ElementTable } from 'claude-code'
-
 import type { MergedPullRequestItem, Shipment, ShipmentStep } from '../types'
-import { wrappedRows } from './items'
+import { BULLET_COLUMNS, actionRow, actionRowRows, wrappedRows } from './items'
+import type { Elements } from './items'
 
 /** The Shipment dot colours, as theme keys. */
 export const SHIPMENT_COLOUR: Record<ShipmentStep, string> = { arrived: 'success', running: 'warning', failed: 'error', unknown: 'inactive' }
@@ -14,15 +13,19 @@ const STEPS: readonly { step: keyof Omit<Shipment, 'tag'>; name: string }[] = [
   { step: 'prod', name: 'prod' },
 ]
 
-/** The elements an item is drawn with, from `$.ui.resolve(e)`. */
-type Elements = Pick<ElementTable, 'Box' | 'Text' | 'Button'>
+/** How a Merged pull request is drawn besides its pull request. */
+export interface MergedItemLook {
+  /** It holds the focus: its title is drawn inverse and its actions carry hotkeys. */
+  isFocused?: boolean
+}
 
 /**
  * A Merged pull request as a list item: a `▸` bullet, the title, and indented under it the four
- * Shipment dots with their names and the ref (with the release tag once one contains it).
- * `flexShrink` 0: an item never squeezes inside the clipping list.
+ * Shipment dots with their names, the ref (with the release tag once one contains it) and its
+ * action row. `flexShrink` 0: an item never squeezes inside the clipping list. The one holding the
+ * focus has its title drawn inverse, and only its actions carry hotkeys.
  */
-export function mergedPullRequestItem({ Box, Text, Button }: Elements, item: MergedPullRequestItem) {
+export function mergedPullRequestItem({ Box, Text, Button }: Elements, item: MergedPullRequestItem, { isFocused = false }: MergedItemLook) {
   const { shipment } = item
   const ref = `#${item.number} ${repoName(item.repo)}${shipment.tag ? ` · ${shipment.tag}` : ''}`
   return (
@@ -33,7 +36,7 @@ export function mergedPullRequestItem({ Box, Text, Button }: Elements, item: Mer
       <Box flexDirection="column" flexShrink={1}>
         {/* `actions.ts` answers the press. */}
         <Button key={`pr:${item.id}`} plain onPress={() => undefined}>
-          <Text bold>{item.title}</Text>
+          <Text bold inverse={isFocused}>{item.title}</Text>
         </Button>
         <Box flexDirection="column" paddingLeft={INDENT_COLUMNS}>
           <Box flexDirection="row" flexWrap="wrap">
@@ -46,25 +49,30 @@ export function mergedPullRequestItem({ Box, Text, Button }: Elements, item: Mer
             ))}
           </Box>
           <Text dimColor wrap="truncate-end">{ref}</Text>
+          {actionRow({ Box, Text, Button }, { tab: 'merged', item }, { isFocused })}
         </Box>
       </Box>
     </Box>
   )
 }
 
-/** The columns of the bullet and of the indent under the title. */
-const BULLET_COLUMNS = 2
+/** The columns of the indent under the title. */
 const INDENT_COLUMNS = 2
 
 /**
  * The rows a Merged pull request takes in `columns`: its title wrapped, the Shipment line wrapped
- * under the indent, and the ref, truncated to one row. The list's scroll into view counts on it:
- * keep it in step with the drawing.
+ * under the indent, the ref, truncated to one row, and the action row. The list's scroll into view
+ * counts on it: keep it in step with the drawing.
  */
 export function mergedItemRows(item: MergedPullRequestItem, columns: number): number {
   const width = columns - BULLET_COLUMNS
   const shipmentLine = STEPS.map(({ name }) => `● ${name}`).join('  ')
-  return wrappedRows(item.title, width) + wrappedRows(shipmentLine, width - INDENT_COLUMNS) + 1
+  return (
+    wrappedRows(item.title, width) +
+    wrappedRows(shipmentLine, width - INDENT_COLUMNS) +
+    1 +
+    actionRowRows({ tab: 'merged', item }, width - INDENT_COLUMNS, {})
+  )
 }
 
 /** `owner/name` -> `name`. */

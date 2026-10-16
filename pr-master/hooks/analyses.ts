@@ -3,7 +3,7 @@ import type { EngineInterface, On, TurnCompleteInput } from 'claude-code'
 
 import type { Analysis, AnalysisKind, PullRequestItem, RunningAnalysis } from '../types'
 import { ANALYSIS_NAME, analysisKey, analysisOfAction, analysisPrompt, analysisRef, continuePrompt, latestAnalyses } from './domain/analysis'
-import { EMPTY_SNAPSHOT, findItem } from './snapshot'
+import { EMPTY_SNAPSHOT, findOpenItem } from './snapshot'
 
 /** The subagent type every analysis runs on. */
 const SUBAGENT_TYPE = 'general-purpose'
@@ -33,7 +33,7 @@ export function registerAnalyses(on: On) {
     const [action, id] = splitKey(e.element)
     const kind = analysisOfAction(action)
     if (kind === undefined && action !== CONTINUE) return pressed
-    const item = findItem(await read($, snapshot), id)
+    const item = findOpenItem(await read($, snapshot), id)
     if (!item) return pressed
     if (kind !== undefined) await analyse($, kind, item)
     else await continueInConversation($, item)

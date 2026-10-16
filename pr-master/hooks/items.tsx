@@ -1,18 +1,21 @@
 import type { ElementTable } from 'claude-code'
 
-import type { ActionProgress, Analysis, PullRequestItem, RunningAnalysis, Tab, Turn } from '../types'
+import type { ActionProgress, Analysis, MergedPullRequestItem, PullRequestItem, RunningAnalysis, Tab, Turn } from '../types'
 import { ANALYSIS_ACTION, ANALYSIS_NAME, isOutOfDate } from './domain/analysis'
 
 /** The dot colours of a Turn, as theme keys. */
 export const TURN_COLOUR: Record<Turn, string> = { mine: 'error', theirs: 'warning', done: 'success', parked: 'inactive' }
 
 /** The elements an item is drawn with, from `$.ui.resolve(e)`. */
-type Elements = Pick<ElementTable, 'Box' | 'Text' | 'Button'>
+export type Elements = Pick<ElementTable, 'Box' | 'Text' | 'Button'>
+
+/** A pull request with the tab it is listed in: which actions apply depends on both. */
+export type Listed = { tab: Exclude<Tab, 'merged'>; item: PullRequestItem } | { tab: 'merged'; item: MergedPullRequestItem }
 
 /** How an item is drawn besides its pull request. */
 export interface ItemLook {
   /** The tab it is listed in: which actions apply depends on it. */
-  tab: Tab
+  tab: Exclude<Tab, 'merged'>
   /** It holds the focus: its `#number repo` is drawn inverse and its actions carry hotkeys. */
   isFocused?: boolean
   /** A Review request also names its author, after the label. */
@@ -47,7 +50,7 @@ interface WriteWords {
 
 /**
  * An action on a pull request: a Button keyed `<kind>:<item id>` on the item's action row, drawn
- * when the action `appliesTo` the item in its tab; `hotkey` presses it while its pull request holds
+ * when the action `appliesTo` the item in its tab (Merged pull requests included); `hotkey` presses it while its pull request holds
  * the focus. `actions.ts` runs it when pressed. To add an action, add it here and a case for its
  * kind there. A write action has `write` words instead: its first press arms it and a second one
  * runs it; `refresh.ts` runs it, with the mutation `github/write-actions.ts` gives for its kind.
@@ -56,7 +59,7 @@ interface Action {
   kind: string
   label: string
   hotkey: string
-  appliesTo: (item: PullRequestItem, tab: Tab) => boolean
+  appliesTo: (listed: Listed) => boolean
   write?: WriteWords
 }
 
@@ -68,40 +71,40 @@ const ACTIONS: readonly Action[] = [
     label: 'Squash merge',
     hotkey: 'm',
     // Turn Done on a My pull request is Ready to merge.
-    appliesTo: (item, tab) => tab === 'mine' && item.turn === 'done',
+    appliesTo: listed => listed.tab === 'mine' && listed.item.turn === 'done',
     write: { confirm: 'Confirm merge?', running: 'Merging…', done: 'Merged', failed: "Couldn't merge" },
   },
   {
     kind: 'update',
     label: 'Update branch',
     hotkey: 'u',
-    appliesTo: (item, tab) => tab === 'mine' && item.isBehind,
+    appliesTo: listed => listed.tab === 'mine' && listed.item.isBehind,
     write: { confirm: 'Confirm update?', running: 'Updating branch…', done: 'Branch updated', failed: "Couldn't update the branch" },
   },
   {
     kind: 'close',
     label: 'Close',
     hotkey: 'x',
-    appliesTo: (item, tab) => tab === 'mine',
+    appliesTo: listed => listed.tab === 'mine',
     write: { confirm: 'Confirm close?', running: 'Closing…', done: 'Closed', failed: "Couldn't close" },
   },
   {
     kind: 'approve',
     label: 'Approve',
     hotkey: 'p',
-    appliesTo: (item, tab) => tab === 'review',
+    appliesTo: listed => listed.tab === 'review',
     write: { confirm: 'Confirm approve?', running: 'Approving…', done: 'Approved', failed: "Couldn't approve" },
   },
   // `analyses.ts` answers the analysis actions' presses.
-  { kind: ANALYSIS_ACTION.review, label: ANALYSIS_NAME.review, hotkey: 'n', appliesTo: (item, tab) => tab === 'review' },
-  { kind: ANALYSIS_ACTION.unblock, label: ANALYSIS_NAME.unblock, hotkey: 'n', appliesTo: (item, tab) => tab === 'mine' },
+  { kind: ANALYSIS_ACTION.review, label: ANALYSIS_NAME.review, hotkey: 'n', appliesTo: listed => listed.tab === 'review' },
+  { kind: ANALYSIS_ACTION.unblock, label: ANALYSIS_NAME.unblock, hotkey: 'n', appliesTo: listed => listed.tab === 'mine' },
 ]
 
 /** The columns a terminal Button takes beyond its label: it draws `[ label ]`. */
 const BUTTON_CHROME_COLUMNS = 4
 
 /** The columns of an item's bullet; its text wraps in the rest. */
-const BULLET_COLUMNS = 2
+export const BULLET_COLUMNS = 2
 
 /**
  * A pull request as a list item: its Turn dot as a two-column bullet, then a column with
@@ -128,26 +131,30 @@ export function pullRequestItem({ Box, Text, Button }: Elements, item: PullReque
           {item.isStale && <Text color="warning">{' · stale'}</Text>}
         </Box>
         <Text>{item.title}</Text>
-        {actionRow({ Box, Text, Button }, item, look)}
+        {actionRow({ Box, Text, Button }, { tab: look.tab, item }, look)}
         {(analysis.running || analysis.result) && analysisBlock({ Box, Text, Button }, item, analysis)}
       </Box>
     </Box>
   )
 }
 
+/** How an action row is drawn: whether its pull request holds the focus, and its write action's state. */
+export type RowLook = Pick<ItemLook, 'isFocused' | 'armed' | 'progress'>
+
 /**
- * The Buttons of the actions that apply to `item`, on a line of their own, separated by a drawn
- * space: an empty `gap` left stale cells after the list scrolled, then its last write action's
- * progress. Pressing one does nothing here, `actions.ts` and `refresh.ts` answer the press. Hotkeys
+ * The Buttons of the actions that apply to the listed pull request, on a line of their own,
+ * separated by a drawn space: an empty `gap` left stale cells after the list scrolled, then its
+ * last write action's progress. Pressing one does nothing here, `actions.ts` and `refresh.ts` answer the press. Hotkeys
  * only on the focused pull request, so two never clash. An armed write action reads "Confirm …?",
  * in the primary variant. No modal dialog: the confirmation is the Button itself.
  */
-function actionRow({ Box, Text, Button }: Elements, item: PullRequestItem, look: ItemLook) {
+export function actionRow({ Box, Text, Button }: Elements, listed: Listed, look: RowLook) {
+  const { item } = listed
   const progress = progressText(look.progress)
   const hasFailed = look.progress?.phase === 'failed'
   return (
     <Box key={`actions:${item.id}`} flexDirection="row" flexWrap="wrap">
-      {actionsOf(item, look.tab).flatMap((action, index) => {
+      {actionsOf(listed).flatMap((action, index) => {
         const key = `${action.kind}:${item.id}`
         const isArmed = action.write !== undefined && look.armed === key
         return [
@@ -201,8 +208,8 @@ const runningLine = (running: RunningAnalysis) => `${ANALYSIS_NAME[running.kind]
 const resultHeading = (result: Analysis) => `${ANALYSIS_NAME[result.kind]} of ${result.headSha.slice(0, 7)}`
 const outOfDateMark = (result: Analysis) => ` · out of date, new commits since: press ${ANALYSIS_NAME[result.kind]} to run it again`
 
-function actionsOf(item: PullRequestItem, tab: Tab): Action[] {
-  return ACTIONS.filter(action => action.appliesTo(item, tab))
+function actionsOf(listed: Listed): Action[] {
+  return ACTIONS.filter(action => action.appliesTo(listed))
 }
 
 /** What a write action's progress reads: `Merging…`, `Merged`, `Couldn't merge (reason)`. */
@@ -225,7 +232,7 @@ export function itemRows(item: PullRequestItem, columns: number, look: ItemLook)
   return (
     wrappedRows(firstLine, width) +
     wrappedRows(item.title, width) +
-    actionRowRows(item, width, look) +
+    actionRowRows({ tab: look.tab, item }, width, look) +
     analysisRows(item, look.analysis ?? {}, width)
   )
 }
@@ -246,10 +253,10 @@ function analysisRows(item: PullRequestItem, { running, result }: ItemAnalysis, 
  * The rows the action row takes in `columns`, its Buttons (as if armed, to err tall) and then its
  * progress wrapping whole onto the next line.
  */
-function actionRowRows(item: PullRequestItem, columns: number, look: ItemLook): number {
+export function actionRowRows(listed: Listed, columns: number, look: RowLook): number {
   const progress = progressText(look.progress)
   const widths = [
-    ...actionsOf(item, look.tab).map(action => Math.max(action.label.length, action.write?.confirm.length ?? 0) + BUTTON_CHROME_COLUMNS),
+    ...actionsOf(listed).map(action => Math.max(action.label.length, action.write?.confirm.length ?? 0) + BUTTON_CHROME_COLUMNS),
     ...(progress === undefined ? [] : [progress.length]),
   ]
   let rows = 1
