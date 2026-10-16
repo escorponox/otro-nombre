@@ -1,3 +1,5 @@
+import type { PromptOrigin } from 'claude-code'
+
 import type { Analysis, AnalysisActionKind, AnalysisKind, PullRequestItem } from '../../types'
 import { QUILL_REVIEWER } from './readiness'
 
@@ -10,6 +12,26 @@ export const ANALYSIS_ACTION: Record<AnalysisKind, AnalysisActionKind> = { revie
 /** The analysis an action runs; undefined for an action that runs none. */
 export function analysisOfAction(action: string): AnalysisKind | undefined {
   return (Object.keys(ANALYSIS_ACTION) as AnalysisKind[]).find(kind => ANALYSIS_ACTION[kind] === action)
+}
+
+/** The origins of what the person sends: never dropped, even when it quotes a hand-back. */
+const PERSON_ORIGINS: readonly PromptOrigin['kind'][] = ['composer', 'bridge', 'sdk']
+
+/**
+ * The analysis whose subagent's report a submission hands into the conversation, from `names` (each
+ * analysis this session started, by its subagent's id); undefined when it hands back none of them or
+ * the person sent it. The engine frames a hand-back `<agent-message from="<agentId>">`: that wording
+ * is the engine's, not its API, so if it changes no hand-back is found and the report goes through.
+ */
+export function handedBackAnalysis(
+  origin: PromptOrigin,
+  text: string,
+  names: Readonly<Record<string, string>>,
+): { agentId: string; name: string } | undefined {
+  if (PERSON_ORIGINS.includes(origin.kind)) return undefined
+  const agentId = /<agent-message from="([^"]+)">/.exec(text)?.[1]
+  const name = agentId === undefined ? undefined : names[agentId]
+  return agentId !== undefined && name !== undefined ? { agentId, name } : undefined
 }
 
 /** The pull request an analysis is of: `owner/repo#number`. */

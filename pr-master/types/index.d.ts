@@ -176,6 +176,11 @@ declare module 'claude-code' {
       analyses: Record<string, Analysis>
       /** The analyses running in this session, by `owner/repo#number`: at most one per pull request. */
       analysing: Record<string, RunningAnalysis>
+      /**
+       * The name of each analysis this session started (`Review analysis of #41 acme/web`), by its
+       * subagent's id, until the subagent's report reaches the conversation and is dropped there.
+       */
+      handBacks: Record<string, string>
     }
   }
 }

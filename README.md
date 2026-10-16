@@ -80,7 +80,7 @@ An analysis runs Claude in the background, with read-only tools, on one pull req
 - **Review analysis** (Review tab): what the change does, its risks and what to look at.
 - **Unblock analysis** (Mine tab): why the pull request is not ready to merge and how to fix it.
 
-The result shows under the pull request and is kept for that commit. **Continue in conversation** sends it to the session as a prompt, so you can carry on from it with Claude.
+The result shows under the pull request and is kept for that commit. It stays out of the conversation: the subagent's report, which Claude Code would hand to the session, is dropped, leaving one line that says the analysis is in the panel. **Continue in conversation** sends it to the session as a prompt, so you can carry on from it with Claude.
 
 ### Shipment of merged pull requests
 

@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { Analysis, PullRequestItem } from '../types'
-import { analysisKey, analysisPrompt, continuePrompt, isOutOfDate, latestAnalyses, unlistedAnalysisKeys } from '../hooks/domain/analysis'
+import { analysisKey, analysisPrompt, continuePrompt, handedBackAnalysis, isOutOfDate, latestAnalyses, unlistedAnalysisKeys } from '../hooks/domain/analysis'
 
 const SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 const OLD_SHA = '0a1b2c3d4e5f60718293a4b5c6d7e8f901234567'
@@ -93,4 +93,31 @@ test('the Unblock analysis prompt names the pull request, its head commit, its R
 
 test('the Unblock analysis prompt names being behind the base branch as a blocker when it is', () => {
   expect(analysisPrompt('unblock', { ...myPullRequest, isBehind: true })).toContain('Its branch is behind its base branch')
+})
+
+/** A subagent's report as the engine hands it into the conversation. */
+const handBack = (agentId: string) =>
+  `Another Claude session sent a message:\n<agent-message from="${agentId}">\n[Subagent hand-back] The report follows:\n  Why it is not ready`
+const started = { afb1e21edfeb795a4: 'Unblock analysis of #12 acme/api' }
+
+test("an analysis subagent's hand-back is found by the id in its frame", () => {
+  expect(handedBackAnalysis({ kind: 'peer' }, handBack('afb1e21edfeb795a4'), started)).toEqual({
+    agentId: 'afb1e21edfeb795a4',
+    name: 'Unblock analysis of #12 acme/api',
+  })
+  expect(handedBackAnalysis({ kind: 'task-notification' }, handBack('afb1e21edfeb795a4'), started)?.agentId).toBe('afb1e21edfeb795a4')
+})
+
+test('the hand-back of a subagent the mod did not start is not an analysis', () => {
+  expect(handedBackAnalysis({ kind: 'peer' }, handBack('a0000000000000000'), started)).toBeUndefined()
+})
+
+test('a message with no hand-back frame is not an analysis', () => {
+  expect(handedBackAnalysis({ kind: 'peer' }, 'Another Claude session sent a message: hello', started)).toBeUndefined()
+})
+
+test('what the person sends is never taken for a hand-back, even quoting one', () => {
+  for (const kind of ['composer', 'bridge', 'sdk'] as const) {
+    expect(handedBackAnalysis({ kind }, handBack('afb1e21edfeb795a4'), started)).toBeUndefined()
+  }
 })

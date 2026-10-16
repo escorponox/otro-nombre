@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { AgentSpawnResult, EngineInterface, On, TurnCompleteInput } from 'claude-code'
 
 import type { Analysis, AnalysisKind, PullRequestItem, RunningAnalysis } from '../types'
-import { ANALYSIS_NAME, analysisKey, analysisOfAction, analysisPrompt, analysisRef, continuePrompt, latestAnalyses } from './domain/analysis'
+import { ANALYSIS_NAME, analysisKey, analysisOfAction, analysisPrompt, analysisRef, continuePrompt, handedBackAnalysis, latestAnalyses } from './domain/analysis'
 import { splitKey } from './domain/element-key'
 import { messageOf, refOf } from './domain/format'
 import { EMPTY_SNAPSHOT, findOpenItem } from './snapshot'
@@ -19,6 +19,7 @@ const snapshot = atom({ plugin: 'pr-master', key: 'snapshot' } as const, EMPTY_S
 const actionProblem = atom({ plugin: 'pr-master', key: 'actionProblem' } as const, null as string | null)
 const analyses = atom({ plugin: 'pr-master', key: 'analyses' } as const, {} as Record<string, Analysis>)
 const analysing = atom({ plugin: 'pr-master', key: 'analysing' } as const, {} as Record<string, RunningAnalysis>)
+const handBacks = atom({ plugin: 'pr-master', key: 'handBacks' } as const, {} as Record<string, string>)
 
 /**
  * The analyses: a press on an analysis action (see `ANALYSIS_ACTION`) starts a background subagent
@@ -26,7 +27,8 @@ const analysing = atom({ plugin: 'pr-master', key: 'analysing' } as const, {} as
  * matched by its `agentId`, brings the result, kept in `$.store` under `owner/repo#number@headSha`
  * and shown under the pull request. Opening the panel reads the kept results; "Continue in
  * conversation" submits one as a prompt. The running analyses live in `$.state`, so a module
- * reload still matches their answers.
+ * reload still matches their answers. The engine also hands each subagent's report to the
+ * conversation, which would start a turn on it: that delivery is dropped, the panel showing it.
  */
 export function registerAnalyses(on: On) {
   // Work after `next`: actions.ts clears the refresh line's problem on every press.
@@ -52,6 +54,14 @@ export function registerAnalyses(on: On) {
     const opened = await next(e)
     await readKeptAnalyses($)
     return opened
+  })
+
+  // A hook that fails is skipped, so the hand-back then reaches the conversation: nothing is lost.
+  on('prompt.submit', async ($, e, next) => {
+    const handedBack = handedBackAnalysis(e.origin, e.text, await read($, handBacks))
+    if (!handedBack) return next(e)
+    await update($, handBacks, ({ [handedBack.agentId]: _, ...others }) => others)
+    return { drop: `The ${handedBack.name} is in the PR panel` }
   })
 }
 
@@ -89,6 +99,7 @@ async function analyse($: EngineInterface, kind: AnalysisKind, item: PullRequest
   } else {
     const { agentId } = spawned
     await update($, analysing, running => ({ ...running, [ref]: { kind, headSha: item.headSha, agentId } }))
+    await update($, handBacks, names => ({ ...names, [agentId]: name }))
   }
 }
 
