@@ -14,22 +14,26 @@ export interface ItemHandlers {
   onOpen: (item: PullRequestItem) => unknown
 }
 
+/** The columns of an item's bullet; its text wraps in the rest. */
+const BULLET_COLUMNS = 2
+
 /**
  * A pull request as a list item: its Turn dot as a two-column bullet, then a column with
  * `#number repo`, the label, the age and the stale mark on the first line, and the title under it,
  * wrapping with a hanging indent. `flexShrink` 0: an item never squeezes inside the clipping list.
+ * The pull request holding the focus has its `#number repo` drawn inverse.
  */
-export function pullRequestItem({ Box, Text, Button }: Elements, item: PullRequestItem, handlers: ItemHandlers) {
+export function pullRequestItem({ Box, Text, Button }: Elements, item: PullRequestItem, handlers: ItemHandlers, isFocused = false) {
   return (
     <Box key={`item:${item.id}`} flexDirection="row" flexShrink={0}>
-      <Box width={2} flexShrink={0}>
+      <Box width={BULLET_COLUMNS} flexShrink={0}>
         <Text color={TURN_COLOUR[item.turn]}>●</Text>
       </Box>
       <Box flexDirection="column" flexShrink={1}>
         <Box flexDirection="row" flexWrap="wrap">
           {/* No hotkey: a plain Button draws its hotkey as a visible prefix. */}
           <Button key={`pr:${item.id}`} plain onPress={() => handlers.onOpen(item)}>
-            <Text bold>{`#${item.number} ${repoName(item.repo)}`}</Text>
+            <Text bold inverse={isFocused}>{`#${item.number} ${repoName(item.repo)}`}</Text>
           </Button>
           <Text dimColor>{' · '}</Text>
           <Text dimColor>{`${item.label} · ${item.ageDays}d`}</Text>
@@ -39,6 +43,21 @@ export function pullRequestItem({ Box, Text, Button }: Elements, item: PullReque
       </Box>
     </Box>
   )
+}
+
+/**
+ * The rows `pullRequestItem` takes in a body `columns` wide, estimated as its lines wrapped at
+ * the column's width (the first line as if marked stale, to err tall). The list's scroll into
+ * view counts on it: keep it in step with the drawing.
+ */
+export function itemRows(item: PullRequestItem, columns: number): number {
+  const firstLine = `#${item.number} ${repoName(item.repo)} · ${item.label} · ${item.ageDays}d · stale`
+  return wrappedRows(firstLine, columns - BULLET_COLUMNS) + wrappedRows(item.title, columns - BULLET_COLUMNS)
+}
+
+/** The rows `text` takes wrapped at `columns`; at least one. */
+export function wrappedRows(text: string, columns: number): number {
+  return Math.max(1, Math.ceil(text.length / Math.max(1, columns)))
 }
 
 /** `owner/name` -> `name`. */
