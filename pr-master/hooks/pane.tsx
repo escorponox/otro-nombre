@@ -52,9 +52,16 @@ export function registerPane(on: On) {
     const header = (
       <Box flexDirection="row" justifyContent="space-between">
         <Text bold>{PANE_TITLE}</Text>
-        <Button key="legend" hotkey="l" plain onPress={() => update($, legend, isShown => !isShown)}>
-          legend
-        </Button>
+        <Box flexDirection="row">
+          {/* refresh.ts answers the press: it hooks `ui.press` on this key. */}
+          <Button key="refresh" hotkey="r" plain onPress={() => undefined}>
+            refresh
+          </Button>
+          <Text> </Text>
+          <Button key="legend" hotkey="l" plain onPress={() => update($, legend, isShown => !isShown)}>
+            legend
+          </Button>
+        </Box>
       </Box>
     )
 
@@ -111,6 +118,9 @@ export function registerPane(on: On) {
             items.map(item => pullRequestItem({ Box, Text, Button }, item, ITEM_HANDLERS))
           )}
         </Box>
+        <Box key="footer" flexShrink={0}>
+          <Text dimColor wrap="wrap">{refreshLine(shot)}</Text>
+        </Box>
       </Box>
     )
   })
@@ -122,6 +132,23 @@ const ITEM_HANDLERS: ItemHandlers = { onOpen: () => undefined }
 /** The pull requests a tab lists. Review requests and Merged pull requests are not fetched yet. */
 function listOf(shot: Snapshot, id: Tab) {
   return id === 'mine' ? shot.mine : []
+}
+
+/** How the last refresh went: when it last succeeded, or why it failed. */
+function refreshLine({ updatedAt, problem }: Snapshot): string {
+  const lastUpdated = updatedAt === null ? '' : ` · last updated ${clockTime(updatedAt)}`
+  if (problem?.kind === 'no-token') {
+    return "No GitHub token: run `gh auth login`, or set the GitHub token in pr-master's plugin options"
+  }
+  if (problem?.kind === 'failed') return `Couldn't refresh (${problem.reason})${lastUpdated}`
+  return updatedAt === null ? 'Not refreshed yet' : `Updated ${clockTime(updatedAt)}`
+}
+
+/** `HH:MM` in the local time zone. */
+function clockTime(ms: number): string {
+  const time = new Date(ms)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(time.getHours())}:${pad(time.getMinutes())}`
 }
 
 /** The engine's pane list is the source of truth: it survives a module reload and a close by the person. */

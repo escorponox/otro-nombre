@@ -34,7 +34,7 @@ export function registerRefresh(on: On, options: Options) {
   })
 
   on('ui.press', { plugin: 'pr-master', element: 'refresh' }, async ($, e, next) => {
-    await refresh($, options)
+    void refresh($, options)
     return next(e)
   })
 }
