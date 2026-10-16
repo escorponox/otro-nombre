@@ -24,6 +24,31 @@ export interface PullRequestItem {
   isStale: boolean
 }
 
+/** How far a Merged pull request got in one step of its Shipment. */
+export type ShipmentStep = 'arrived' | 'running' | 'failed' | 'unknown'
+
+/** The path of a Merged pull request through CI, a release, staging and production. */
+export interface Shipment {
+  ci: ShipmentStep
+  release: ShipmentStep
+  stg: ShipmentStep
+  prod: ShipmentStep
+  /** The tag of the earliest release containing its merge commit; null when none does yet. */
+  tag: string | null
+}
+
+/** A Merged pull request as the panel draws it, its Shipment already derived. */
+export interface MergedPullRequestItem {
+  /** GitHub's node id. */
+  id: string
+  number: number
+  /** `owner/name`. */
+  repo: string
+  title: string
+  url: string
+  shipment: Shipment
+}
+
 /** Why the last refresh failed. */
 export type RefreshProblem =
   /** Neither `gh auth token` nor the GitHub token setting gave a token. */
