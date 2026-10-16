@@ -34,6 +34,17 @@ export function graphqlRequest(token: string, query: string, variables: Record<s
   }
 }
 
+/** The `$.http.fetch` arguments of a REST GET of `path` (from the API root, with its leading slash). */
+export function restRequest(token: string, path: string): { url: string; init: HttpInit } {
+  return {
+    url: `https://api.github.com${path}`,
+    init: {
+      method: 'GET',
+      headers: { Authorization: `bearer ${token}`, Accept: 'application/vnd.github+json', 'User-Agent': 'pr-master' },
+    },
+  }
+}
+
 /** The `data` of a GraphQL answer; throws `GitHubError` when GitHub answered an error. */
 export function graphqlData<Data>(response: HttpResponse): Data {
   if (!response.ok) throw new GitHubError(`HTTP ${response.status}`)

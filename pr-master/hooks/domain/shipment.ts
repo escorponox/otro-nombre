@@ -1,4 +1,4 @@
-import type { Shipment, ShipmentStep } from '../../types'
+import type { MergedPullRequestItem, Shipment, ShipmentStep } from '../../types'
 import type { ChecksState } from './pull-request'
 
 /** A merge commit and its checks, as GitHub describes them. */
@@ -63,6 +63,14 @@ export function shipStatus(pr: MergedPullRequest, release: Release | null): Ship
 }
 
 /**
+ * Whether the ship status hangs on a release: it has a merge commit, and CI neither failed nor
+ * still builds. Only then is it worth asking GitHub which release contains the merge commit.
+ */
+export function awaitsRelease(pr: MergedPullRequest): pr is MergedPullRequest & { mergeCommit: MergeCommit } {
+  return pr.mergeCommit !== null && shipStatus(pr, null) === 'pending'
+}
+
+/**
  * The releases that may contain the merge commit, earliest first: those created after the merge.
  * A release created before it cannot contain it, so it costs no request; drafts are ignored.
  */
@@ -89,6 +97,11 @@ export function shipment(pr: MergedPullRequest, release: Release | null): Shipme
     prod: 'unknown',
     tag: release?.tag ?? null,
   }
+}
+
+/** A merged pull request as the panel draws it, `release` being the earliest release containing it (or null). */
+export function toMergedItem(pr: MergedPullRequest, release: Release | null): MergedPullRequestItem {
+  return { id: pr.id, number: pr.number, repo: pr.repository, title: pr.title, url: pr.url, shipment: shipment(pr, release) }
 }
 
 function ciStep(pr: MergedPullRequest, status: ShipStatus): ShipmentStep {

@@ -58,6 +58,8 @@ export type RefreshProblem =
 /** What the panel shows: the lists of the last successful refresh and how the last refresh went. */
 export interface Snapshot {
   mine: PullRequestItem[]
+  /** Fetched apart from the open pull requests, so it may lag behind them. */
+  merged: MergedPullRequestItem[]
   /** When the last successful refresh finished, in `$.clock.now()` milliseconds; null before the first. */
   updatedAt: number | null
   /** Why the last refresh failed; null when it succeeded. The lists are then the last successful ones. */

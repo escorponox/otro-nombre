@@ -37,6 +37,9 @@ export function world(on: On) {
 export const GRAPHQL_URL = 'https://api.github.com/graphql'
 export const MY_PULL_REQUESTS_QUERY = 'is:pr is:open author:@me archived:false sort:updated-desc'
 
+/** GitHub's REST compare of `base...head` in `owner/name`. */
+const COMPARE_URL = /^https:\/\/api\.github\.com\/repos\/([^/]+\/[^/]+)\/compare\/(.+)\.\.\.([^?]+)/
+
 /** A request the mod sent to GitHub. */
 export interface GitHubRequest {
   url: string
@@ -53,6 +56,7 @@ export interface GitHubRequest {
  * GraphQL searches are answered by their `q` variable: `searches[q]` holds the
  * pull request nodes (see `pullRequestNode`); a search nobody canned is a GraphQL error.
  * The review threads query is answered from `threads[id]` (see `reviewThread`); none by default.
+ * The merged pull requests' search is answered from `merged`, and REST compares from `compares`.
  */
 export function github(on: On) {
   const fake = {
@@ -63,7 +67,21 @@ export function github(on: On) {
     threads: {} as Record<string, object[]>,
     /** When set, every GraphQL request answers this HTTP status. */
     failWith: undefined as number | undefined,
+    /** The nodes answered to any search for merged pull requests (see `mergedPullRequestNode`); none by default. */
+    merged: [] as object[],
+    /** When set, the search for merged pull requests alone answers this HTTP status. */
+    mergedFailWith: undefined as number | undefined,
+    /** How long, on the mocked clock, the search for merged pull requests takes to answer. */
+    mergedDelayMs: 0,
+    /**
+     * REST compare answers, keyed `owner/name tag...mergeCommitOid`, valued as GitHub's `status`
+     * (`behind`, `identical`, `ahead`, `diverged`); a compare nobody canned is a 404.
+     */
+    compares: {} as Record<string, string>,
+    /** The requests of the open pull requests' fetch, in order. */
     requests: [] as GitHubRequest[],
+    /** The requests of the merged pull requests' fetch (the search and the compares), in order. */
+    mergedRequests: [] as GitHubRequest[],
     argvs: [] as string[][],
   }
   on('process.run', ($, e) => {
@@ -80,17 +98,35 @@ export function github(on: On) {
       },
     }
   })
-  on('http.fetch', ($, e) => {
+  on('http.fetch', async ($, e) => {
     const body = JSON.parse(e.init?.body ?? '{}') as { query?: string; variables?: Record<string, unknown> }
-    fake.requests.push({
+    const compare = COMPARE_URL.exec(e.url)
+    const isMergedSearch = String(body.variables?.q).includes('is:merged')
+    const request = {
       url: e.url,
       method: e.init?.method,
       headers: { ...e.init?.headers },
       query: body.query ?? '',
       variables: body.variables ?? {},
-    })
+    }
+    if (compare || isMergedSearch) fake.mergedRequests.push(request)
+    else fake.requests.push(request)
     if (fake.failWith !== undefined) {
       return { value: { status: fake.failWith, ok: false, headers: {}, text: '{"message":"Server Error"}' } }
+    }
+    if (compare) {
+      const [, repo, base, head] = compare
+      const status = fake.compares[`${repo} ${decodeURIComponent(base ?? '')}...${head}`]
+      return status
+        ? { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ status, ahead_by: 0, behind_by: 1, commits: [] }) } }
+        : { value: { status: 404, ok: false, headers: {}, text: '{"message":"Not Found"}' } }
+    }
+    if (isMergedSearch) {
+      if (fake.mergedDelayMs > 0) await $.clock.sleep(fake.mergedDelayMs)
+      if (fake.mergedFailWith !== undefined) {
+        return { value: { status: fake.mergedFailWith, ok: false, headers: {}, text: '{"message":"Server Error"}' } }
+      }
+      return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ data: { search: { nodes: fake.merged } } }) } }
     }
     const ids = body.variables?.ids as string[] | undefined
     const nodes = fake.searches[String(body.variables?.q)]
@@ -130,6 +166,55 @@ export function pullRequestNode(number: number, facts: {
     author: { login: 'me' },
     repository: { nameWithOwner: repo, isPrivate: facts.isPrivate ?? false, owner: { login: repo.split('/')[0] } },
     commits: { nodes: [{ commit: { statusCheckRollup: facts.checks === null ? null : { state: facts.checks ?? 'SUCCESS' } } }] },
+  }
+}
+
+/**
+ * A merged pull request node as GitHub's GraphQL search returns it: merged at `mergedAt`
+ * (2026-10-15 10:00 UTC by default) as commit `merge-<number>`, whose checks all passed
+ * (two successful check runs), in a public repo with no releases, unless `facts` say otherwise.
+ */
+export function mergedPullRequestNode(number: number, facts: {
+  repo?: string
+  title?: string
+  mergedAt?: string
+  /** `null`: GitHub has no merge commit for it. */
+  mergeCommit?: null
+  checks?: string | null
+  /** Each check run's conclusion; `null` while it runs. */
+  conclusions?: (string | null)[]
+  /** The repo's releases, newest first as GitHub answers them. */
+  releases?: { tag: string; createdAt: string; isDraft?: boolean }[]
+  isPrivate?: boolean
+} = {}) {
+  const repo = facts.repo ?? 'acme/api'
+  const contexts = (facts.conclusions ?? ['SUCCESS', 'SUCCESS']).map(conclusion => ({
+    __typename: 'CheckRun',
+    status: conclusion === null ? 'IN_PROGRESS' : 'COMPLETED',
+    conclusion,
+  }))
+  return {
+    id: `PR_${number}`,
+    number,
+    title: facts.title ?? `Merged pull request ${number}`,
+    url: `https://github.com/${repo}/pull/${number}`,
+    mergedAt: facts.mergedAt ?? '2026-10-15T10:00:00Z',
+    repository: {
+      nameWithOwner: repo,
+      isPrivate: facts.isPrivate ?? false,
+      owner: { login: repo.split('/')[0] },
+      releases: {
+        nodes: (facts.releases ?? []).map(release => ({
+          tagName: release.tag,
+          createdAt: release.createdAt,
+          isDraft: release.isDraft ?? false,
+        })),
+      },
+    },
+    mergeCommit: facts.mergeCommit === null ? null : {
+      oid: `merge-${number}`,
+      statusCheckRollup: facts.checks === null ? null : { state: facts.checks ?? 'SUCCESS', contexts: { nodes: contexts } },
+    },
   }
 }
 
@@ -174,4 +259,21 @@ export async function drawnItem(ui: Mounted<(typeof SURFACES)[number], 'Pane'>, 
     isStale: stale === ' · stale',
     title: textOf(title),
   }
+}
+
+/**
+ * A Merged pull request as drawn: its bullet; its title; indented under it, each Shipment step's
+ * name with its dot colour, and the ref.
+ */
+export async function drawnMergedItem(ui: Mounted<(typeof SURFACES)[number], 'Pane'>, id: string) {
+  const item = await ui.find({ key: `item:${id}` })
+  const [bullet, column] = (item?.children ?? []) as Drawn[]
+  const [title, indented] = (column?.children ?? []) as Drawn[]
+  const [steps, ref] = (indented?.children ?? []) as Drawn[]
+  const shipment: Record<string, unknown> = {}
+  for (const step of (steps?.children ?? []) as Drawn[]) {
+    const [dot, name] = step.children as Drawn[]
+    shipment[textOf(name).trim()] = dot?.props.color
+  }
+  return { bullet: textOf(bullet), title: textOf(title), shipment, ref: textOf(ref), indent: indented?.props.paddingLeft }
 }

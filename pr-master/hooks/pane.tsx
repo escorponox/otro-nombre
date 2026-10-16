@@ -1,9 +1,11 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On } from 'claude-code'
 
-import type { Snapshot, Tab } from '../types'
+import type { MergedPullRequestItem, PullRequestItem, Snapshot, Tab } from '../types'
 import { TURN_COLOUR, pullRequestItem } from './items'
 import type { ItemHandlers } from './items'
+import { SHIPMENT_COLOUR, mergedPullRequestItem } from './merged-items'
+import type { MergedItemHandlers } from './merged-items'
 import { EMPTY_SNAPSHOT } from './snapshot'
 
 export const PANE_ID = 'pr-master'
@@ -14,9 +16,6 @@ const tab = atom({ plugin: 'pr-master', key: 'tab' } as const, 'mine' as Tab)
 const legend = atom({ plugin: 'pr-master', key: 'legend' } as const, false)
 /** Written by `refresh.ts`. */
 const snapshot = atom({ plugin: 'pr-master', key: 'snapshot' } as const, EMPTY_SNAPSHOT)
-
-/** The Shipment dot colours, as theme keys. */
-const SHIPMENT_COLOUR = { arrived: 'success', running: 'warning', failed: 'error', unknown: 'inactive' } as const
 
 const TURN_WORDS = { mine: 'Mine', theirs: 'Theirs', done: 'Done', parked: 'Parked' } as const
 
@@ -114,8 +113,10 @@ export function registerPane(on: On) {
         <Box key="list" flexDirection="column" flexGrow={1} flexShrink={1} overflow="hidden" gap={1}>
           {items.length === 0 ? (
             <Text dimColor>No pull requests here.</Text>
+          ) : shown === 'merged' ? (
+            shot.merged.map(item => mergedPullRequestItem({ Box, Text, Button }, item, MERGED_ITEM_HANDLERS))
           ) : (
-            items.map(item => pullRequestItem({ Box, Text, Button }, item, ITEM_HANDLERS))
+            openListOf(shot, shown).map(item => pullRequestItem({ Box, Text, Button }, item, ITEM_HANDLERS))
           )}
         </Box>
         <Box key="footer" flexShrink={0}>
@@ -128,9 +129,15 @@ export function registerPane(on: On) {
 
 // Opening a pull request in the browser comes with the action row (ticket 10).
 const ITEM_HANDLERS: ItemHandlers = { onOpen: () => undefined }
+const MERGED_ITEM_HANDLERS: MergedItemHandlers = { onOpen: () => undefined }
 
-/** The pull requests a tab lists. Review requests and Merged pull requests are not fetched yet. */
-function listOf(shot: Snapshot, id: Tab) {
+/** The pull requests a tab lists. */
+function listOf(shot: Snapshot, id: Tab): readonly (PullRequestItem | MergedPullRequestItem)[] {
+  return id === 'merged' ? shot.merged : openListOf(shot, id)
+}
+
+/** The open pull requests a tab lists. Review requests are not fetched yet. */
+function openListOf(shot: Snapshot, id: Exclude<Tab, 'merged'>): readonly PullRequestItem[] {
   return id === 'mine' ? shot.mine : []
 }
 
