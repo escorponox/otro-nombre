@@ -1,5 +1,5 @@
 import { atom, update } from 'claude-code'
-import type { EngineInterface, On } from 'claude-code'
+import type { EngineInterface, On, Timer } from 'claude-code'
 
 import type { RefreshProblem, Snapshot, SnapshotCache } from '../types'
 import { toItem } from './domain/item'
@@ -16,6 +16,8 @@ import { EMPTY_SNAPSHOT } from './snapshot'
 const GH_TIMEOUT_MS = 10_000
 /** The `$.store` key of the snapshot cache shared by the person's sessions. */
 const CACHE_KEY = 'snapshot-cache'
+/** How often the session looks at the shared cache; `isDue` decides whether it fetches. */
+const POLL_TICK_MS = 15_000
 
 // The engine's scan only accepts atoms declared in the file that reads and writes them.
 const snapshot = atom({ plugin: 'pr-master', key: 'snapshot' } as const, EMPTY_SNAPSHOT)
@@ -26,19 +28,32 @@ const snapshot = atom({ plugin: 'pr-master', key: 'snapshot' } as const, EMPTY_S
  */
 let token: string | undefined
 
+/** This session's poller; a module reload drops it with the old module, a second `session.start` replaces it. */
+let poller: Timer | undefined
 /** The fetch this session has in flight, joined by any refresh asked for meanwhile. */
 let fetching: Promise<void> | undefined
 /** The `fetchedAt` of the cache this session last showed, so an unchanged cache is not shown again. */
 let shownFetchedAt: number | undefined
 
 /**
- * Keeps the snapshot the pane draws and the status row: shows the shared cache, and fetches
- * when the pane opens on a cache older than 60 s and when the person presses the pane's
- * `refresh` Button. Everything that reaches GitHub through `$` lives in this file, since the
+ * Keeps the snapshot the pane draws and the status row: a poller started with the session
+ * shows the shared cache and fetches when it is due (60 s with the pane open, five minutes
+ * closed, backed off after failures); opening the pane polls at once, and the pane's
+ * `refresh` Button fetches now. Everything that reaches GitHub through `$` lives in this file, since the
  * engine follows `$` only into functions declared in the same file.
  */
 export function registerRefresh(on: On, options: Options) {
-  on('ui.open', { id: PANE_ID }, async ($, e, next) => {
+  // Only a session a person sits at polls (a `-p` run shows no status row). The matcher is also
+  // what lets this hook stand beside pane.tsx's own `session.start` hook.
+  on('session.start', { isInteractive: true }, async ($, e, next) => {
+    const started = await next(e)
+    poller?.cancel()
+    poller = $.clock.every(POLL_TICK_MS, () => poll($, options))
+    void poll($, options)
+    return started
+  })
+
+  on('ui.open', { id: 'pr-master' }, async ($, e, next) => {
     const opened = await next(e)
     void poll($, options)
     return opened

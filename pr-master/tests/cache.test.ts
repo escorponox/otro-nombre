@@ -32,3 +32,26 @@ for (const surface of SURFACES) {
     await ui.unmount()
   })
 }
+
+test('opening the panel on a cache older than 60 s fetches at once', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  world(on, { store: { [CACHE_KEY]: cacheOf(NOW - 61 * SECOND, 5) } })
+  const gh = github(on)
+  await startSession($)
+  await clock.settle()
+  expect(gh.requests).toHaveLength(0)
+
+  await runPrs($)
+  await clock.settle()
+  expect(gh.requests).toHaveLength(1)
+})
+
+test('opening the panel on a cache younger than 60 s does not fetch', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  world(on, { store: { [CACHE_KEY]: cacheOf(NOW - 59 * SECOND, 5) } })
+  const gh = github(on)
+  await startSession($)
+  await runPrs($)
+  await clock.settle()
+  expect(gh.requests).toHaveLength(0)
+})
