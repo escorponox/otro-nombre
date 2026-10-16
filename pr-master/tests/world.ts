@@ -1,5 +1,5 @@
 import type { On } from 'claude-code'
-import type { Engine } from 'claude-code/testing'
+import type { Engine, Mounted } from 'claude-code/testing'
 
 export const PLUGIN = 'pr-master'
 export const PANE_ID = 'pr-master'
@@ -56,12 +56,15 @@ export interface GitHubRequest {
  *
  * GraphQL searches are answered by their `q` variable: `searches[q]` holds the
  * pull request nodes (see `pullRequestNode`); a search nobody canned is a GraphQL error.
+ * The review threads query is answered from `threads[id]` (see `reviewThread`); none by default.
  */
 export function github(on: On) {
   const fake = {
     /** What `gh auth token` prints; `null` makes it exit 1 (logged out); `'missing'` makes every gh path fail to start. */
     ghToken: 'gho_fake' as string | null | 'missing',
     searches: { [MY_PULL_REQUESTS_QUERY]: [] } as Record<string, object[]>,
+    /** The review threads of each pull request, by node id. */
+    threads: {} as Record<string, object[]>,
     /** When set, every GraphQL request answers this HTTP status. */
     failWith: undefined as number | undefined,
     requests: [] as GitHubRequest[],
@@ -93,16 +96,19 @@ export function github(on: On) {
     if (fake.failWith !== undefined) {
       return { value: { status: fake.failWith, ok: false, headers: {}, text: '{"message":"Server Error"}' } }
     }
+    const ids = body.variables?.ids as string[] | undefined
     const nodes = fake.searches[String(body.variables?.q)]
-    const answer = nodes
-      ? { data: { search: { nodes } } }
-      : { errors: [{ message: `no canned search for ${String(body.variables?.q)}` }] }
+    const answer = ids
+      ? { data: { nodes: ids.map(id => ({ id, reviewThreads: { nodes: fake.threads[id] ?? [] } })) } }
+      : nodes
+        ? { data: { search: { nodes } } }
+        : { errors: [{ message: `no canned search for ${String(body.variables?.q)}` }] }
     return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify(answer) } }
   })
   return fake
 }
 
-/** A pull request node as GitHub's GraphQL search returns it: an approved, clean one unless `facts` say otherwise. */
+/** A pull request node as GitHub's GraphQL search returns it: an approved, clean, public one unless `facts` say otherwise. */
 export function pullRequestNode(number: number, facts: {
   repo?: string
   title?: string
@@ -112,6 +118,7 @@ export function pullRequestNode(number: number, facts: {
   mergeStateStatus?: string
   reviewDecision?: string | null
   checks?: string | null
+  isPrivate?: boolean
 } = {}) {
   const repo = facts.repo ?? 'acme/api'
   return {
@@ -125,9 +132,14 @@ export function pullRequestNode(number: number, facts: {
     reviewDecision: facts.reviewDecision === undefined ? 'APPROVED' : facts.reviewDecision,
     createdAt: facts.createdAt ?? '2026-10-13T00:00:00Z',
     author: { login: 'me' },
-    repository: { nameWithOwner: repo },
+    repository: { nameWithOwner: repo, isPrivate: facts.isPrivate ?? false, owner: { login: repo.split('/')[0] } },
     commits: { nodes: [{ commit: { statusCheckRollup: facts.checks === null ? null : { state: facts.checks ?? 'SUCCESS' } } }] },
   }
+}
+
+/** A review thread node as GitHub's GraphQL API returns it: opened by `author`, unresolved unless `isResolved`. */
+export function reviewThread(author: string, isResolved = false) {
+  return { isResolved, comments: { nodes: [{ author: { login: author } }] } }
 }
 
 export async function startSession($: Engine) {
@@ -136,4 +148,34 @@ export async function startSession($: Engine) {
 
 export async function runPrs($: Engine) {
   return $.command.run({ command: 'prs', args: '' } as never)
+}
+
+/** A drawn element as `FoundElement.children` holds it. */
+interface Drawn {
+  type: string
+  props: Record<string, unknown>
+  children: (Drawn | string)[]
+}
+
+const textOf = (node: Drawn | string | undefined): string =>
+  node === undefined ? '' : typeof node === 'string' ? node : node.children.map(textOf).join('')
+
+/**
+ * An item as drawn: its bullet's dot colour; on its first line `#number repo`, then its label and age,
+ * and whether it is marked stale; its title on the line under it.
+ */
+export async function drawnItem(ui: Mounted<(typeof SURFACES)[number], 'Pane'>, id: string) {
+  const item = await ui.find({ key: `item:${id}` })
+  const [bullet, column] = (item?.children ?? []) as Drawn[]
+  const [firstLine, title] = (column?.children ?? []) as Drawn[]
+  const [ref, ...rest] = firstLine?.children ?? []
+  const [, meta, stale] = rest.map(textOf)
+  const dot = bullet?.children[0] as Drawn | undefined
+  return {
+    dot: dot?.props.color,
+    ref: textOf(ref),
+    meta,
+    isStale: stale === ' · stale',
+    title: textOf(title),
+  }
 }
