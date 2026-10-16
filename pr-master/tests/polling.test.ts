@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import { isDue, pollInterval } from '../hooks/domain/polling'
+import { NOW } from './world'
 
 const SECOND = 1000
-const NOW = Date.parse('2026-10-16T12:00:00Z')
 
 describe('the polling interval', () => {
   test('is 60 s while the panel is open and five minutes while it is closed', () => {

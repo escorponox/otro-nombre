@@ -1,55 +1,23 @@
-import { expect, mock, test } from 'claude-code/testing'
+import { expect, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
-import type { Engine, Mounted } from 'claude-code/testing'
+import type { Engine } from 'claude-code/testing'
 
-import { MY_PULL_REQUESTS_QUERY, PANE_ID, PLUGIN, SURFACES, drawnItem, github, paneMount, pullRequestNode, runPrs, startSession, world } from './world'
-import type { GitHubRequest } from './world'
-
-type Ui = Mounted<(typeof SURFACES)[number], 'Pane'>
-
-const NOW = Date.parse('2026-10-16T12:00:00Z')
-
-/** The search for Review requests asked of acme/platform, within the default two-week review window. */
-const PLATFORM_SEARCH =
-  'is:pr is:open archived:false draft:false team-review-requested:acme/platform -author:@me -reviewed-by:@me created:>2026-10-02 sort:updated-desc'
+import { PLATFORM_SEARCH, SURFACES, actionRow, button, drawnItem, focus, mutations, openPanel, pullRequestNode } from './world'
+import type { Surface } from './world'
 
 /**
  * The panel open on the Review tab: #41 by ana, asked of acme/platform and seen at commit `c0ffee41`,
  * and #42 by bob; and one My pull request, #12, Ready to merge.
  */
-async function openReviewTab($: Engine, on: On, surface: (typeof SURFACES)[number]) {
-  const clock = mock.clock(on, { now: NOW })
-  world(on)
-  const gh = github(on)
-  gh.teams = [{ slug: 'acme/platform', role: 'MEMBER' }]
-  gh.searches[MY_PULL_REQUESTS_QUERY] = [pullRequestNode(12)]
-  gh.searches[PLATFORM_SEARCH] = [
-    pullRequestNode(41, { author: 'ana', reviewDecision: 'REVIEW_REQUIRED', mergeStateStatus: 'BLOCKED', headRefOid: 'c0ffee41' }),
-    pullRequestNode(42, { author: 'bob', reviewDecision: 'REVIEW_REQUIRED', mergeStateStatus: 'BLOCKED' }),
-  ]
-  await startSession($)
-  await runPrs($)
-  await clock.settle()
-  const ui = await $.ui.mount(paneMount(surface))
-  await ui.press({ key: 'tab:review' })
-  return { ui, gh, clock }
-}
-
-/** The person's Tab onto the element keyed `element`. */
-async function focus($: Engine, element: string) {
-  await $.ui.focus({ component: 'Pane', requestId: PANE_ID, plugin: PLUGIN, element, origin: { kind: 'person' } })
-}
-
-const mutations = (requests: GitHubRequest[]) => requests.filter(request => request.query.startsWith('mutation'))
-
-async function button(ui: Ui, key: string) {
-  const found = await ui.find({ key })
-  return found && { label: found.text, variant: found.props.variant, hotkey: found.props.hotkey }
-}
-
-async function actionRow(ui: Ui, id: string) {
-  return (await ui.find({ key: `actions:${id}` }))?.text ?? ''
-}
+const openReviewTab = ($: Engine, on: On, surface: Surface) =>
+  openPanel($, on, surface, {
+    tab: 'review',
+    mine: [pullRequestNode(12)],
+    review: [
+      pullRequestNode(41, { author: 'ana', reviewDecision: 'REVIEW_REQUIRED', mergeStateStatus: 'BLOCKED', headRefOid: 'c0ffee41' }),
+      pullRequestNode(42, { author: 'bob', reviewDecision: 'REVIEW_REQUIRED', mergeStateStatus: 'BLOCKED' }),
+    ],
+  })
 
 for (const surface of SURFACES) {
   test(`Approve shows on every Review request and on no My pull request (${surface})`, async ($, on) => {

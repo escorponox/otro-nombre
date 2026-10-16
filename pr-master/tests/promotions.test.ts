@@ -1,8 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { GRAPHQL_URL, SURFACES, drawnMergedItem, github, mergedPullRequestNode, paneMount, runPrs, startSession, world } from './world'
-
-const NOW = Date.parse('2026-10-16T12:00:00Z')
+import { GRAPHQL_URL, NOW, SURFACES, drawnMergedItem, github, mergedPullRequestNode, paneMount, runPrs, startSession, world } from './world'
 
 /** acme/api's CircleCI config: it pushes the `lec-api` image (and names a templated one, which is no image). */
 const CIRCLECI_CONFIG = [

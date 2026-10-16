@@ -1,8 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { MY_PULL_REQUESTS_QUERY, SURFACES, exceptReviewRequests, github, paneMount, pullRequestNode, runPrs, startSession, world } from './world'
-
-const NOW = Date.parse('2026-10-16T12:00:00Z')
+import { MY_PULL_REQUESTS_QUERY, NOW, SURFACES, exceptReviewRequests, github, paneMount, pullRequestNode, runPrs, startSession, world } from './world'
 
 for (const surface of SURFACES) {
   test(`a pull request in a hidden organisation appears in no tab and no count (${surface})`, { options: { hiddenOrgs: ['legacy-corp'] } }, async ($, on) => {

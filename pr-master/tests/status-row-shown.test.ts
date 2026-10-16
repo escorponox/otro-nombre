@@ -1,8 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { MY_PULL_REQUESTS_QUERY, SURFACES, github, paneMount, pullRequestNode, runPrs, startSession, world } from './world'
-
-const NOW = Date.parse('2026-10-16T12:00:00Z')
+import { MY_PULL_REQUESTS_QUERY, NOW, SURFACES, github, paneMount, pullRequestNode, runPrs, startSession, world } from './world'
 
 for (const surface of SURFACES) {
   test(`the status row counts what is ready and what needs the person, and clears when nothing does (${surface})`, async ($, on) => {

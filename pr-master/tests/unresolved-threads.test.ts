@@ -1,8 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { MY_PULL_REQUESTS_QUERY, SURFACES, drawnItem, exceptReviewRequests, github, paneMount, pullRequestNode, reviewThread, runPrs, startSession, world } from './world'
+import { MY_PULL_REQUESTS_QUERY, NOW, SURFACES, drawnItem, exceptReviewRequests, github, paneMount, pullRequestNode, reviewThread, runPrs, startSession, world } from './world'
 
-const NOW = Date.parse('2026-10-16T12:00:00Z')
 const BLOCKED = { mergeStateStatus: 'BLOCKED', reviewDecision: 'REVIEW_REQUIRED' } as const
 
 for (const surface of SURFACES) {

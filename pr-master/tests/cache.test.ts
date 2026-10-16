@@ -1,9 +1,8 @@
 import { expect, mock, test } from 'claude-code/testing'
 
 import type { PullRequestItem, SnapshotCache } from '../types'
-import { CACHE_KEY, MY_PULL_REQUESTS_QUERY, SURFACES, exceptReviewRequests, github, paneMount, pullRequestNode, runPrs, startSession, world } from './world'
+import { CACHE_KEY, MY_PULL_REQUESTS_QUERY, NOW, SURFACES, exceptReviewRequests, github, paneMount, pullRequestNode, runPrs, startSession, world } from './world'
 
-const NOW = Date.parse('2026-10-16T12:00:00Z')
 const SECOND = 1000
 
 /** A My pull request as another session cached it. */

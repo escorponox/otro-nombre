@@ -1,12 +1,23 @@
+import { mock } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import type { Engine, Mounted } from 'claude-code/testing'
+
+import type { Analysis, AnalysisKind, Tab } from '../types'
 
 export const PLUGIN = 'pr-master'
 export const PANE_ID = 'pr-master'
 export const SURFACES = ['terminal', 'desktop'] as const
 
+/** A surface the pane is mounted on. */
+export type Surface = (typeof SURFACES)[number]
+/** The mounted pane. */
+export type Ui = Mounted<Surface, 'Pane'>
+
+/** The tests' clock: 2026-10-16 12:00 UTC. */
+export const NOW = Date.parse('2026-10-16T12:00:00Z')
+
 /** The Pane's mount arguments as a docked pane on `surface`, its body `bodyRows` tall. */
-export function paneMount(surface: (typeof SURFACES)[number], bodyRows = 40) {
+export function paneMount(surface: Surface, bodyRows = 40) {
   return {
     plugin: PLUGIN,
     surface,
@@ -437,7 +448,7 @@ export const textOf = (node: Drawn | string | undefined): string =>
  * An item as drawn: its bullet's dot colour; on its first line `#number repo`, then its label and age,
  * and whether it is marked stale; its title on the line under it.
  */
-export async function drawnItem(ui: Mounted<(typeof SURFACES)[number], 'Pane'>, id: string) {
+export async function drawnItem(ui: Ui, id: string) {
   const item = await ui.find({ key: `item:${id}` })
   const [bullet, column] = (item?.children ?? []) as Drawn[]
   const [firstLine, title] = (column?.children ?? []) as Drawn[]
@@ -457,7 +468,7 @@ export async function drawnItem(ui: Mounted<(typeof SURFACES)[number], 'Pane'>, 
  * A Merged pull request as drawn: its bullet; its title; indented under it, each Shipment step's
  * name with its dot colour, and the ref.
  */
-export async function drawnMergedItem(ui: Mounted<(typeof SURFACES)[number], 'Pane'>, id: string) {
+export async function drawnMergedItem(ui: Ui, id: string) {
   const item = await ui.find({ key: `item:${id}` })
   const [bullet, column] = (item?.children ?? []) as Drawn[]
   const [title, indented] = (column?.children ?? []) as Drawn[]
@@ -468,4 +479,72 @@ export async function drawnMergedItem(ui: Mounted<(typeof SURFACES)[number], 'Pa
     shipment[textOf(name).trim()] = dot?.props.color
   }
   return { bullet: textOf(bullet), title: textOf(title), shipment, ref: textOf(ref), indent: indented?.props.paddingLeft }
+}
+
+/** The search for Review requests asked of acme/platform, within the default two-week review window. */
+export const PLATFORM_SEARCH =
+  'is:pr is:open archived:false draft:false team-review-requested:acme/platform -author:@me -reviewed-by:@me created:>2026-10-02 sort:updated-desc'
+
+/**
+ * The panel open at `NOW` and mounted on `surface`, showing `tab`: `mine` holds the My pull
+ * requests' nodes and `review` the Review requests asked of acme/platform (the person's one team).
+ * `store` stands for what other sessions kept.
+ */
+export async function openPanel(
+  $: Engine,
+  on: On,
+  surface: Surface,
+  { mine = [], review, tab = 'mine', store = {} }: { mine?: object[]; review?: object[]; tab?: Tab; store?: Record<string, unknown> } = {},
+) {
+  const clock = mock.clock(on, { now: NOW })
+  const engine = world(on, { store })
+  const gh = github(on)
+  gh.searches[MY_PULL_REQUESTS_QUERY] = mine
+  if (review) {
+    gh.teams = [{ slug: 'acme/platform', role: 'MEMBER' }]
+    gh.searches[PLATFORM_SEARCH] = review
+  }
+  await startSession($)
+  await runPrs($)
+  await clock.settle()
+  const ui = await $.ui.mount(paneMount(surface))
+  if (tab !== 'mine') await ui.press({ key: `tab:${tab}` })
+  return { ui, engine, gh, clock }
+}
+
+/** The person's Tab onto the element keyed `element`. */
+export async function focus($: Engine, element: string) {
+  await $.ui.focus({ component: 'Pane', requestId: PANE_ID, plugin: PLUGIN, element, origin: { kind: 'person' } })
+}
+
+/** The refresh line at the bottom of the pane. */
+export async function footer(ui: Ui) {
+  return (await ui.find({ key: 'footer' }))?.text ?? ''
+}
+
+/** The GraphQL mutations among `requests`, in order. */
+export const mutations = (requests: GitHubRequest[]) => requests.filter(request => request.query.startsWith('mutation'))
+
+/** The Button keyed `key` as drawn: its label, variant and hotkey; undefined when it is not drawn. */
+export async function button(ui: Ui, key: string) {
+  const found = await ui.find({ key })
+  return found && { label: found.text, variant: found.props.variant, hotkey: found.props.hotkey }
+}
+
+/** The text of a pull request's action row. */
+export async function actionRow(ui: Ui, id: string) {
+  return (await ui.find({ key: `actions:${id}` }))?.text ?? ''
+}
+
+/** A `kind` analysis of the commit `headSha` reading `text`, as another session kept it a minute ago. */
+export const storedAnalysis = (kind: AnalysisKind, headSha: string, text: string): Analysis => ({
+  kind,
+  headSha,
+  text,
+  analysedAt: NOW - 60_000,
+})
+
+/** The text drawn under a pull request for its analysis; undefined when there is none. */
+export async function analysisOf(ui: Ui, id: string) {
+  return (await ui.find({ key: `analysis:${id}` }))?.text
 }

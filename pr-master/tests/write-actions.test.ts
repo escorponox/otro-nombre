@@ -1,49 +1,22 @@
-import { expect, mock, test } from 'claude-code/testing'
+import { expect, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
-import type { Engine, Mounted } from 'claude-code/testing'
+import type { Engine } from 'claude-code/testing'
 
-import { MY_PULL_REQUESTS_QUERY, PANE_ID, PLUGIN, SURFACES, github, paneMount, pullRequestNode, runPrs, startSession, world } from './world'
-import type { GitHubRequest } from './world'
-
-type Ui = Mounted<(typeof SURFACES)[number], 'Pane'>
-
-const NOW = Date.parse('2026-10-16T12:00:00Z')
+import { MY_PULL_REQUESTS_QUERY, SURFACES, actionRow, button, focus, github, mutations, openPanel, pullRequestNode } from './world'
+import type { Surface, Ui } from './world'
 
 /**
  * The panel open on three My pull requests in acme/api: #12 Ready to merge at commit `sha12`,
  * #13 behind its base branch, #14 with failing checks.
  */
-async function openPanel($: Engine, on: On, surface: (typeof SURFACES)[number]) {
-  const clock = mock.clock(on, { now: NOW })
-  world(on)
-  const gh = github(on)
-  gh.searches[MY_PULL_REQUESTS_QUERY] = [
-    pullRequestNode(12),
-    pullRequestNode(13, { mergeStateStatus: 'BEHIND' }),
-    pullRequestNode(14, { checks: 'FAILURE', mergeStateStatus: 'BLOCKED' }),
-  ]
-  await startSession($)
-  await runPrs($)
-  await clock.settle()
-  const ui = await $.ui.mount(paneMount(surface))
-  return { ui, gh, clock }
-}
-
-/** The person's Tab onto the element keyed `element`. */
-async function focus($: Engine, element: string) {
-  await $.ui.focus({ component: 'Pane', requestId: PANE_ID, plugin: PLUGIN, element, origin: { kind: 'person' } })
-}
-
-const mutations = (requests: GitHubRequest[]) => requests.filter(request => request.query.startsWith('mutation'))
-
-async function button(ui: Ui, key: string) {
-  const found = await ui.find({ key })
-  return found && { label: found.text, variant: found.props.variant, hotkey: found.props.hotkey }
-}
-
-async function actionRow(ui: Ui, id: string) {
-  return (await ui.find({ key: `actions:${id}` }))?.text ?? ''
-}
+const openThree = ($: Engine, on: On, surface: Surface) =>
+  openPanel($, on, surface, {
+    mine: [
+      pullRequestNode(12),
+      pullRequestNode(13, { mergeStateStatus: 'BEHIND' }),
+      pullRequestNode(14, { checks: 'FAILURE', mergeStateStatus: 'BLOCKED' }),
+    ],
+  })
 
 /** The action row of `id` as drawn while GitHub receives each mutation. */
 function watchRow(gh: ReturnType<typeof github>, ui: Ui, id: string): string[] {
@@ -56,7 +29,7 @@ function watchRow(gh: ReturnType<typeof github>, ui: Ui, id: string): string[] {
 
 for (const surface of SURFACES) {
   test(`Squash merge shows on a Ready to merge pull request, Update branch on one behind, Close on every one (${surface})`, async ($, on) => {
-    const { ui } = await openPanel($, on, surface)
+    const { ui } = await openThree($, on, surface)
 
     expect(await button(ui, 'merge:PR_12')).toMatchObject({ label: 'Squash merge' })
     expect(await button(ui, 'update:PR_12')).toBeUndefined()
@@ -69,7 +42,7 @@ for (const surface of SURFACES) {
   })
 
   test(`one press of Squash merge asks for confirmation and sends nothing (${surface})`, async ($, on) => {
-    const { ui, gh } = await openPanel($, on, surface)
+    const { ui, gh } = await openThree($, on, surface)
 
     await ui.press({ key: 'merge:PR_12' })
     expect(await button(ui, 'merge:PR_12')).toMatchObject({ label: 'Confirm merge?', variant: 'primary' })
@@ -78,7 +51,7 @@ for (const surface of SURFACES) {
   })
 
   test(`two presses within 3 s squash-merge the pull request pinned to the commit shown, then refresh (${surface})`, async ($, on) => {
-    const { ui, gh, clock } = await openPanel($, on, surface)
+    const { ui, gh, clock } = await openThree($, on, surface)
 
     const whileMerging = watchRow(gh, ui, 'PR_12')
 
@@ -101,7 +74,7 @@ for (const surface of SURFACES) {
   })
 
   test(`a press, 3 s, then a press sends nothing and asks again (${surface})`, async ($, on) => {
-    const { ui, gh, clock } = await openPanel($, on, surface)
+    const { ui, gh, clock } = await openThree($, on, surface)
 
     await ui.press({ key: 'merge:PR_12' })
     await clock.advance(3000)
@@ -115,7 +88,7 @@ for (const surface of SURFACES) {
   })
 
   test(`a focus move disarms the armed action (${surface})`, async ($, on) => {
-    const { ui, gh } = await openPanel($, on, surface)
+    const { ui, gh } = await openThree($, on, surface)
 
     await focus($, 'merge:PR_12')
     await ui.press({ key: 'merge:PR_12' })
@@ -128,7 +101,7 @@ for (const surface of SURFACES) {
   })
 
   test(`pressing another action arms that one instead (${surface})`, async ($, on) => {
-    const { ui, gh } = await openPanel($, on, surface)
+    const { ui, gh } = await openThree($, on, surface)
 
     await ui.press({ key: 'merge:PR_12' })
     await ui.press({ key: 'close:PR_12' })
@@ -139,7 +112,7 @@ for (const surface of SURFACES) {
   })
 
   test(`Update branch, confirmed, updates the branch with a merge commit (${surface})`, async ($, on) => {
-    const { ui, gh, clock } = await openPanel($, on, surface)
+    const { ui, gh, clock } = await openThree($, on, surface)
 
     const whileUpdating = watchRow(gh, ui, 'PR_13')
 
@@ -158,7 +131,7 @@ for (const surface of SURFACES) {
   })
 
   test(`Close, confirmed, closes the pull request (${surface})`, async ($, on) => {
-    const { ui, gh, clock } = await openPanel($, on, surface)
+    const { ui, gh, clock } = await openThree($, on, surface)
 
     const whileClosing = watchRow(gh, ui, 'PR_14')
 
@@ -176,7 +149,7 @@ for (const surface of SURFACES) {
   })
 
   test(`a write action GitHub refuses shows its error on the item (${surface})`, async ($, on) => {
-    const { ui, gh } = await openPanel($, on, surface)
+    const { ui, gh } = await openThree($, on, surface)
     gh.mutationError = 'Head branch was modified. Review and try the merge again.'
 
     await ui.press({ key: 'merge:PR_12' })
@@ -187,7 +160,7 @@ for (const surface of SURFACES) {
   })
 
   test(`the focused pull request's write actions carry their hotkeys: m merge, u update branch, x close (${surface})`, async ($, on) => {
-    const { ui } = await openPanel($, on, surface)
+    const { ui } = await openThree($, on, surface)
     expect((await button(ui, 'merge:PR_12'))?.hotkey).toBeUndefined()
 
     await focus($, 'pr:PR_12')

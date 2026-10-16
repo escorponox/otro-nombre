@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
-import type { Mounted } from 'claude-code/testing'
 
 import { SURFACES, paneMount, runPrs, startSession, world } from './world'
+import type { Ui } from './world'
 
 for (const surface of SURFACES) {
   test(`the pane shows the tabs Mine, Review and Merged with their counts, Mine first (${surface})`, async ($, on) => {
@@ -65,7 +65,7 @@ for (const surface of SURFACES) {
 }
 
 /** A legend entry as drawn: its dot's colour and the word beside the dot. */
-async function legendEntry(ui: Mounted<(typeof SURFACES)[number], 'Pane'>, entry: string) {
+async function legendEntry(ui: Ui, entry: string) {
   const found = await ui.find({ key: `legend:${entry}` })
   const [dot, word] = (found?.children ?? []) as { props: { color?: string }; children: string[] }[]
   return { colour: dot?.props.color, text: word?.children.join('').trim() }

@@ -1,8 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { GRAPHQL_URL, MY_PULL_REQUESTS_QUERY, SURFACES, drawnItem, exceptReviewRequests, github, paneMount, pullRequestNode, runPrs, startSession, world } from './world'
-
-const NOW = Date.parse('2026-10-16T12:00:00Z')
+import { GRAPHQL_URL, MY_PULL_REQUESTS_QUERY, NOW, SURFACES, drawnItem, exceptReviewRequests, github, paneMount, pullRequestNode, runPrs, startSession, world } from './world'
 
 test('opening the panel searches GitHub for My pull requests with the gh token', async ($, on) => {
   const clock = mock.clock(on, { now: NOW })

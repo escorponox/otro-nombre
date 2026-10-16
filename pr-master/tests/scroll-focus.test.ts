@@ -1,12 +1,10 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
-import type { Engine, Mounted } from 'claude-code/testing'
+import type { Engine } from 'claude-code/testing'
 
-import { MY_PULL_REQUESTS_QUERY, PANE_ID, PLUGIN, SURFACES, github, paneMount, pullRequestNode, runPrs, startSession, world } from './world'
+import { MY_PULL_REQUESTS_QUERY, NOW, PANE_ID, SURFACES, focus, github, paneMount, pullRequestNode, runPrs, startSession, world } from './world'
+import type { Ui } from './world'
 
-type Ui = Mounted<(typeof SURFACES)[number], 'Pane'>
-
-const NOW = Date.parse('2026-10-16T12:00:00Z')
 const NUMBERS = [1, 2, 3, 4, 5]
 
 /**
@@ -19,11 +17,6 @@ const SHORT_BODY = 17
 /** The person's wheel tick or arrow key over the pane: `by` rows, negative toward the top. */
 async function scroll($: Engine, by: number) {
   return $.ui.scroll({ component: 'Pane', requestId: PANE_ID, offset: Math.max(0, by), by, bodyRows: 40, contentRows: 40, origin: { kind: 'person' } })
-}
-
-/** The person's Tab onto the element keyed `element`. */
-async function focus($: Engine, element: string) {
-  await $.ui.focus({ component: 'Pane', requestId: PANE_ID, plugin: PLUGIN, element, origin: { kind: 'person' } })
 }
 
 /** The pull requests the list draws, by number. */

@@ -1,48 +1,26 @@
-import { expect, mock, test } from 'claude-code/testing'
+import { expect, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
-import type { Engine, Mounted } from 'claude-code/testing'
+import type { Engine } from 'claude-code/testing'
 
-import type { Analysis } from '../types'
-import { MY_PULL_REQUESTS_QUERY, PANE_ID, PLUGIN, SURFACES, github, headShaOf, paneMount, pullRequestNode, runPrs, startSession, world } from './world'
+import { SURFACES, analysisOf, focus, footer, headShaOf, openPanel, pullRequestNode, storedAnalysis } from './world'
+import type { Surface } from './world'
 
-type Ui = Mounted<(typeof SURFACES)[number], 'Pane'>
-
-const NOW = Date.parse('2026-10-16T12:00:00Z')
-const TEAM_SEARCH =
-  'is:pr is:open archived:false draft:false team-review-requested:acme/platform -author:@me -reviewed-by:@me created:>2026-10-02 sort:updated-desc'
 const OLD_SHA = '0123456789abcdef0123456789abcdef01234567'
 
 /** A Review analysis another session stored for Review request #41 in acme/web at `headSha`. */
-const storedAnalysis = (headSha: string): Analysis => ({
-  kind: 'review',
-  headSha,
-  text: 'What it does:\n- Caches the session token.',
-  analysedAt: NOW - 60_000,
-})
+const storedReview = (headSha: string) => storedAnalysis('review', headSha, 'What it does:\n- Caches the session token.')
 
 /**
  * The panel open on the Review tab, mounted on `surface`: Review request #41 in acme/web by ana,
  * and My pull request #12 in acme/api. `store` stands for what other sessions kept.
  */
-async function openReviewTab($: Engine, on: On, surface: (typeof SURFACES)[number], store: Record<string, unknown> = {}) {
-  const clock = mock.clock(on, { now: NOW })
-  const engine = world(on, { store })
-  const gh = github(on)
-  gh.teams = [{ slug: 'acme/platform', role: 'MEMBER' }]
-  gh.searches[MY_PULL_REQUESTS_QUERY] = [pullRequestNode(12)]
-  gh.searches[TEAM_SEARCH] = [pullRequestNode(41, { repo: 'acme/web', author: 'ana', title: 'Cache the session token', reviewDecision: 'REVIEW_REQUIRED' })]
-  await startSession($)
-  await runPrs($)
-  await clock.settle()
-  const ui = await $.ui.mount(paneMount(surface))
-  await ui.press({ key: 'tab:review' })
-  return { ui, engine, gh }
-}
-
-/** The text drawn under a pull request for its analysis; undefined when there is none. */
-async function analysisOf(ui: Ui, id: string) {
-  return (await ui.find({ key: `analysis:${id}` }))?.text
-}
+const openReviewTab = ($: Engine, on: On, surface: Surface, store: Record<string, unknown> = {}) =>
+  openPanel($, on, surface, {
+    tab: 'review',
+    store,
+    mine: [pullRequestNode(12)],
+    review: [pullRequestNode(41, { repo: 'acme/web', author: 'ana', title: 'Cache the session token', reviewDecision: 'REVIEW_REQUIRED' })],
+  })
 
 for (const surface of SURFACES) {
   test(`every Review request has a Review analysis action, pressed with n while it holds the focus (${surface})`, async ($, on) => {
@@ -50,7 +28,7 @@ for (const surface of SURFACES) {
 
     expect((await ui.find({ key: 'review-analysis:PR_41' }))?.text).toBe('Review analysis')
     expect((await ui.find({ key: 'review-analysis:PR_41' }))?.props.hotkey).toBeUndefined()
-    await $.ui.focus({ component: 'Pane', requestId: PANE_ID, plugin: PLUGIN, element: 'pr:PR_41', origin: { kind: 'person' } })
+    await focus($, 'pr:PR_41')
     expect((await ui.find({ key: 'review-analysis:PR_41' }))?.props.hotkey).toBe('n')
 
     await ui.press({ key: 'tab:mine' })
@@ -89,7 +67,7 @@ for (const surface of SURFACES) {
 
     await ui.press({ key: 'review-analysis:PR_41' })
     expect(await analysisOf(ui, 'PR_41')).toBeUndefined()
-    expect((await ui.find({ key: 'footer' }))?.text).toMatch(
+    expect(await footer(ui)).toMatch(
       /^Couldn't start the Review analysis of #41 acme\/web \(background agents are off\) · Updated \d\d:\d\d$/,
     )
 
@@ -102,7 +80,7 @@ for (const surface of SURFACES) {
   })
 
   test(`a kept analysis of the head commit shows under its pull request as the panel opens (${surface})`, async ($, on) => {
-    const { ui } = await openReviewTab($, on, surface, { [`acme/web#41@${headShaOf(41)}`]: storedAnalysis(headShaOf(41)) })
+    const { ui } = await openReviewTab($, on, surface, { [`acme/web#41@${headShaOf(41)}`]: storedReview(headShaOf(41)) })
 
     const drawn = await analysisOf(ui, 'PR_41')
     expect(drawn).toContain('Review analysis')
@@ -113,7 +91,7 @@ for (const surface of SURFACES) {
   })
 
   test(`an analysis of an older commit is marked out of date and runs again on the new head (${surface})`, async ($, on) => {
-    const { ui, engine } = await openReviewTab($, on, surface, { [`acme/web#41@${OLD_SHA}`]: storedAnalysis(OLD_SHA) })
+    const { ui, engine } = await openReviewTab($, on, surface, { [`acme/web#41@${OLD_SHA}`]: storedReview(OLD_SHA) })
 
     const drawn = await analysisOf(ui, 'PR_41')
     expect(drawn).toContain('Caches the session token.')
@@ -127,7 +105,7 @@ for (const surface of SURFACES) {
   })
 
   test(`Continue in conversation sends the analysis into the conversation (${surface})`, async ($, on) => {
-    const { ui, engine } = await openReviewTab($, on, surface, { [`acme/web#41@${headShaOf(41)}`]: storedAnalysis(headShaOf(41)) })
+    const { ui, engine } = await openReviewTab($, on, surface, { [`acme/web#41@${headShaOf(41)}`]: storedReview(headShaOf(41)) })
 
     await ui.press({ key: 'continue:PR_41' })
     expect(engine.prompts).toHaveLength(1)

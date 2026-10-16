@@ -1,9 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { SURFACES, drawnItem, github, paneMount, pullRequestNode, runPrs, startSession, world } from './world'
+import { NOW, SURFACES, drawnItem, github, paneMount, pullRequestNode, runPrs, startSession, world } from './world'
 import type { GitHubRequest } from './world'
-
-const NOW = Date.parse('2026-10-16T12:00:00Z')
 
 /** The searches of the spec, within the default two-week review window. */
 const teamSearch = (team: string, since = '2026-10-02') =>

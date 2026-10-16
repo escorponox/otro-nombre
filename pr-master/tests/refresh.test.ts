@@ -1,9 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
-import type { Mounted } from 'claude-code/testing'
 
-import { MY_PULL_REQUESTS_QUERY, SURFACES, exceptReviewRequests, github, paneMount, pullRequestNode, runPrs, startSession, world } from './world'
+import { MY_PULL_REQUESTS_QUERY, NOW, SURFACES, exceptReviewRequests, footer, github, paneMount, pullRequestNode, runPrs, startSession, world } from './world'
 
-const NOW = Date.parse('2026-10-16T12:00:00Z')
 const MINUTE = 60_000
 
 for (const surface of SURFACES) {
@@ -106,8 +104,3 @@ test('the gh token wins over the GitHub token setting', { options: { githubToken
 
   expect(gh.requests[0]?.headers.Authorization).toBe('bearer gho_fake')
 })
-
-/** The refresh line at the bottom of the pane. */
-async function footer(ui: Mounted<(typeof SURFACES)[number], 'Pane'>) {
-  return (await ui.find({ key: 'footer' }))?.text ?? ''
-}

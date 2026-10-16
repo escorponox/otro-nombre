@@ -3,8 +3,10 @@ import { expect, mock, test } from 'claude-code/testing'
 import {
   GRAPHQL_URL,
   MY_PULL_REQUESTS_QUERY,
+  NOW,
   SURFACES,
   drawnMergedItem,
+  footer,
   github,
   mergedPullRequestNode,
   paneMount,
@@ -13,8 +15,6 @@ import {
   startSession,
   world,
 } from './world'
-
-const NOW = Date.parse('2026-10-16T12:00:00Z')
 
 const mergedSearch = (since: string) => `is:pr is:merged author:@me archived:false merged:>${since} sort:updated-desc`
 
@@ -172,7 +172,7 @@ for (const surface of SURFACES) {
 
     await clock.advance(5_000)
     expect((await ui.find({ key: 'tab:merged' }))?.text).toBe('Merged 1')
-    expect((await ui.find({ key: 'footer' }))?.text).toMatch(/^Updated \d\d:\d\d$/)
+    expect(await footer(ui)).toMatch(/^Updated \d\d:\d\d$/)
     await ui.unmount()
   })
 
@@ -192,7 +192,7 @@ for (const surface of SURFACES) {
     await ui.press({ key: 'refresh' })
     expect((await ui.find({ key: 'tab:mine' }))?.text).toBe('Mine 1')
     expect((await ui.find({ key: 'tab:merged' }))?.text).toBe('Merged 1')
-    expect((await ui.find({ key: 'footer' }))?.text).toMatch(/^Couldn't refresh \(HTTP 502\) · last updated \d\d:\d\d$/)
+    expect(await footer(ui)).toMatch(/^Couldn't refresh \(HTTP 502\) · last updated \d\d:\d\d$/)
     await ui.unmount()
   })
 }

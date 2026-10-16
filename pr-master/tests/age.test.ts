@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import { ageInDays, isStale } from '../hooks/domain/age'
+import { NOW } from './world'
 
-const NOW = Date.parse('2026-10-16T12:00:00Z')
 const DAY = 86_400_000
 
 describe('the age of a pull request', () => {

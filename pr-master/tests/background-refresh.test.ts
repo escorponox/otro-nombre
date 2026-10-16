@@ -1,8 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { MY_PULL_REQUESTS_QUERY, exceptReviewRequests, github, pullRequestNode, runPrs, startSession, world } from './world'
+import { MY_PULL_REQUESTS_QUERY, NOW, exceptReviewRequests, github, pullRequestNode, runPrs, startSession, world } from './world'
 
-const NOW = Date.parse('2026-10-16T12:00:00Z')
 const SECOND = 1000
 
 test('with the panel open, the session fetches every 60 s', async ($, on) => {
