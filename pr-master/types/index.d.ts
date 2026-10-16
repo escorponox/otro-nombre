@@ -30,9 +30,23 @@ export type RefreshProblem =
   | { kind: 'no-token' }
   | { kind: 'failed'; reason: string }
 
+/** One of the person's teams in the Review tab: its switch and how many Review requests it has. */
+export interface TeamSwitch {
+  /** `org/team`. */
+  slug: string
+  /** Whether its Review requests are listed. */
+  isOn: boolean
+  /** Its Review requests as GitHub counts them, whether switched on or off. */
+  count: number
+}
+
 /** What the panel shows: the lists of the last successful refresh and how the last refresh went. */
 export interface Snapshot {
   mine: PullRequestItem[]
+  /** Review requests: of the teams switched on, and dismissed approvals. */
+  review: PullRequestItem[]
+  /** The person's teams, in the order the Review tab draws their switches. */
+  teams: TeamSwitch[]
   /** When the last successful refresh finished, in `$.clock.now()` milliseconds; null before the first. */
   updatedAt: number | null
   /** Why the last refresh failed; null when it succeeded. The lists are then the last successful ones. */

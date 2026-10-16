@@ -12,6 +12,13 @@
       "options": ["off", "2w", "1m", "3m", "6m"],
       "default": "1m"
     },
+    "reviewWindow": {
+      "type": "string",
+      "title": "Review window",
+      "description": "List Review requests opened within this window: off (no limit), 1w (one week), 2w (two weeks) or 1m (one month)",
+      "options": ["off", "1w", "2w", "1m"],
+      "default": "2w"
+    },
     "hiddenOrgs": {
       "type": "string",
       "multiple": true,

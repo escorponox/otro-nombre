@@ -123,6 +123,11 @@ export function github(on: On) {
   return fake
 }
 
+/** The requests other than the Review request ones (the viewer's teams and their searches), in order. */
+export function exceptReviewRequests(requests: GitHubRequest[]): GitHubRequest[] {
+  return requests.filter(r => !r.query.includes('query ViewerTeams') && !r.query.includes('query ReviewRequests'))
+}
+
 /** A team the viewer is in: `slug` is `org/team`. */
 export interface FakeTeam {
   slug: string

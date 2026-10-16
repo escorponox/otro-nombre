@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { GRAPHQL_URL, MY_PULL_REQUESTS_QUERY, SURFACES, drawnItem, github, paneMount, pullRequestNode, runPrs, startSession, world } from './world'
+import { GRAPHQL_URL, MY_PULL_REQUESTS_QUERY, SURFACES, drawnItem, exceptReviewRequests, github, paneMount, pullRequestNode, runPrs, startSession, world } from './world'
 
 const NOW = Date.parse('2026-10-16T12:00:00Z')
 
@@ -13,7 +13,7 @@ test('opening the panel searches GitHub for My pull requests with the gh token',
   await clock.settle()
 
   expect(gh.argvs[0]).toEqual(['gh', 'auth', 'token'])
-  expect(gh.requests).toHaveLength(1)
+  expect(exceptReviewRequests(gh.requests)).toHaveLength(1)
   expect(gh.requests[0]).toMatchObject({ url: GRAPHQL_URL, method: 'POST', variables: { q: MY_PULL_REQUESTS_QUERY } })
   expect(gh.requests[0]?.headers.Authorization).toBe('bearer gho_fake')
 })

@@ -19,7 +19,14 @@ export interface ItemHandlers {
  * `#number repo`, the label, the age and the stale mark on the first line, and the title under it,
  * wrapping with a hanging indent. `flexShrink` 0: an item never squeezes inside the clipping list.
  */
-export function pullRequestItem({ Box, Text, Button }: Elements, item: PullRequestItem, handlers: ItemHandlers) {
+export function pullRequestItem(
+  { Box, Text, Button }: Elements,
+  item: PullRequestItem,
+  handlers: ItemHandlers,
+  /** Review requests also name their author, after the label. */
+  { showAuthor = false }: { showAuthor?: boolean } = {},
+) {
+  const byAuthor = showAuthor ? ` · by ${item.author}` : ''
   return (
     <Box key={`item:${item.id}`} flexDirection="row" flexShrink={0}>
       <Box width={2} flexShrink={0}>
@@ -32,7 +39,7 @@ export function pullRequestItem({ Box, Text, Button }: Elements, item: PullReque
             <Text bold>{`#${item.number} ${repoName(item.repo)}`}</Text>
           </Button>
           <Text dimColor>{' · '}</Text>
-          <Text dimColor>{`${item.label} · ${item.ageDays}d`}</Text>
+          <Text dimColor>{`${item.label}${byAuthor} · ${item.ageDays}d`}</Text>
           {item.isStale && <Text color="warning">{' · stale'}</Text>}
         </Box>
         <Text>{item.title}</Text>

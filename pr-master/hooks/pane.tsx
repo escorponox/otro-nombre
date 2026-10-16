@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On } from 'claude-code'
 
-import type { Snapshot, Tab } from '../types'
+import type { Snapshot, Tab, TeamSwitch } from '../types'
 import { TURN_COLOUR, pullRequestItem } from './items'
 import type { ItemHandlers } from './items'
 import { EMPTY_SNAPSHOT } from './snapshot'
@@ -103,6 +103,19 @@ export function registerPane(on: On) {
       </Box>
     )
 
+    // The Review tab's team switches; refresh.ts answers their presses (it hooks `ui.press` on `team:` keys).
+    // Buttons apart by a drawn space, not `gap`, which leaves stale cells.
+    const teamSwitches = (
+      <Box key="teams" flexDirection="row" flexWrap="wrap">
+        {shot.teams.flatMap((team, index) => [
+          ...(index > 0 ? [<Text key={`teams:space:${team.slug}`}> </Text>] : []),
+          <Button key={`team:${team.slug}`} variant={team.isOn ? 'primary' : undefined} onPress={() => undefined}>
+            {teamLabel(team)}
+          </Button>,
+        ])}
+      </Box>
+    )
+
     // Header, legend and tabs stay put; only the list box under them grows and clips.
     return (
       <Box flexDirection="column" width={e.props.bodyColumns} height={e.props.scroll.bodyRows} gap={1}>
@@ -110,12 +123,13 @@ export function registerPane(on: On) {
           {header}
           {isLegendShown && legendBox}
           {tabs}
+          {shown === 'review' && shot.teams.length > 0 && teamSwitches}
         </Box>
         <Box key="list" flexDirection="column" flexGrow={1} flexShrink={1} overflow="hidden" gap={1}>
           {items.length === 0 ? (
             <Text dimColor>No pull requests here.</Text>
           ) : (
-            items.map(item => pullRequestItem({ Box, Text, Button }, item, ITEM_HANDLERS))
+            items.map(item => pullRequestItem({ Box, Text, Button }, item, ITEM_HANDLERS, { showAuthor: shown === 'review' }))
           )}
         </Box>
         <Box key="footer" flexShrink={0}>
@@ -129,9 +143,16 @@ export function registerPane(on: On) {
 // Opening a pull request in the browser comes with the action row (ticket 10).
 const ITEM_HANDLERS: ItemHandlers = { onOpen: () => undefined }
 
-/** The pull requests a tab lists. Review requests and Merged pull requests are not fetched yet. */
+/** The pull requests a tab lists. Merged pull requests are not fetched yet. */
 function listOf(shot: Snapshot, id: Tab) {
-  return id === 'mine' ? shot.mine : []
+  if (id === 'mine') return shot.mine
+  if (id === 'review') return shot.review
+  return []
+}
+
+/** A team switch's label: whether it is on, the team and its count. */
+function teamLabel(team: TeamSwitch): string {
+  return `${team.isOn ? '[x]' : '[ ]'} ${team.slug} ${team.count}`
 }
 
 /** How the last refresh went: when it last succeeded, or why it failed. */
