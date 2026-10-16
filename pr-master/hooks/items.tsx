@@ -14,14 +14,33 @@ export interface ItemHandlers {
   onOpen: (item: PullRequestItem) => unknown
 }
 
+/**
+ * An action on a pull request: a Button keyed `<kind>:<item id>` on the item's action row, drawn
+ * when the action `appliesTo` the item; `hotkey` presses it while its pull request holds the focus.
+ * `actions.ts` runs it when pressed. To add an action, add it here and a case for its kind there.
+ */
+interface Action {
+  kind: string
+  label: string
+  hotkey: string
+  appliesTo: (item: PullRequestItem) => boolean
+}
+
+/** The actions, in their order on the row. */
+const ACTIONS: readonly Action[] = [{ kind: 'copy', label: 'Copy link', hotkey: 'c', appliesTo: () => true }]
+
+/** The columns a terminal Button takes beyond its label: it draws `[ label ]`. */
+const BUTTON_CHROME_COLUMNS = 4
+
 /** The columns of an item's bullet; its text wraps in the rest. */
 const BULLET_COLUMNS = 2
 
 /**
  * A pull request as a list item: its Turn dot as a two-column bullet, then a column with
  * `#number repo`, the label, the age and the stale mark on the first line, and the title under it,
- * wrapping with a hanging indent. `flexShrink` 0: an item never squeezes inside the clipping list.
- * The pull request holding the focus has its `#number repo` drawn inverse.
+ * wrapping with a hanging indent, and its action row under the title. `flexShrink` 0: an item never
+ * squeezes inside the clipping list. The pull request holding the focus has its `#number repo` drawn
+ * inverse, and only its actions carry hotkeys.
  */
 export function pullRequestItem({ Box, Text, Button }: Elements, item: PullRequestItem, handlers: ItemHandlers, isFocused = false) {
   return (
@@ -40,9 +59,32 @@ export function pullRequestItem({ Box, Text, Button }: Elements, item: PullReque
           {item.isStale && <Text color="warning">{' · stale'}</Text>}
         </Box>
         <Text>{item.title}</Text>
+        {actionRow({ Box, Text, Button }, item, isFocused)}
       </Box>
     </Box>
   )
+}
+
+/**
+ * The Buttons of the actions that apply to `item`, on a line of their own, separated by a drawn
+ * space: an empty `gap` left stale cells after the list scrolled. Pressing one does nothing here,
+ * `actions.ts` answers the press. Hotkeys only on the focused pull request, so two never clash.
+ */
+function actionRow({ Box, Text, Button }: Elements, item: PullRequestItem, isFocused: boolean) {
+  return (
+    <Box key={`actions:${item.id}`} flexDirection="row" flexWrap="wrap">
+      {actionsOf(item).flatMap((action, index) => [
+        index > 0 && <Text>{' '}</Text>,
+        <Button key={`${action.kind}:${item.id}`} hotkey={isFocused ? action.hotkey : undefined} onPress={() => undefined}>
+          {action.label}
+        </Button>,
+      ])}
+    </Box>
+  )
+}
+
+function actionsOf(item: PullRequestItem): Action[] {
+  return ACTIONS.filter(action => action.appliesTo(item))
 }
 
 /**
@@ -52,7 +94,25 @@ export function pullRequestItem({ Box, Text, Button }: Elements, item: PullReque
  */
 export function itemRows(item: PullRequestItem, columns: number): number {
   const firstLine = `#${item.number} ${repoName(item.repo)} · ${item.label} · ${item.ageDays}d · stale`
-  return wrappedRows(firstLine, columns - BULLET_COLUMNS) + wrappedRows(item.title, columns - BULLET_COLUMNS)
+  const width = columns - BULLET_COLUMNS
+  return wrappedRows(firstLine, width) + wrappedRows(item.title, width) + actionRowRows(item, width)
+}
+
+/** The rows the action row takes in `columns`, its Buttons wrapping whole onto the next line. */
+function actionRowRows(item: PullRequestItem, columns: number): number {
+  let rows = 1
+  let used = 0
+  for (const action of actionsOf(item)) {
+    const width = action.label.length + BUTTON_CHROME_COLUMNS
+    const needed = used === 0 ? width : used + 1 + width
+    if (needed > columns && used > 0) {
+      rows++
+      used = width
+    } else {
+      used = needed
+    }
+  }
+  return rows
 }
 
 /** The rows `text` takes wrapped at `columns`; at least one. */

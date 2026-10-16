@@ -10,10 +10,11 @@ const NOW = Date.parse('2026-10-16T12:00:00Z')
 const NUMBERS = [1, 2, 3, 4, 5]
 
 /**
- * A body 14 rows tall at 60 columns: header, tabs and the refresh line take 7 rows with their blank
- * lines, leaving 8 rows to the list. Each pull request is two rows, so three show at the top.
+ * A body 17 rows tall at 60 columns: header, tabs and the refresh line take 6 rows with their blank
+ * lines, leaving 11 rows to the list. Each pull request is three rows (ref line, title, action row)
+ * with a blank line between two, so three show at the top.
  */
-const SHORT_BODY = 14
+const SHORT_BODY = 17
 
 /** The person's wheel tick or arrow key over the pane: `by` rows, negative toward the top. */
 async function scroll($: Engine, by: number) {

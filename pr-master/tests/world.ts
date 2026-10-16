@@ -164,13 +164,13 @@ export async function runPrs($: Engine) {
 }
 
 /** A drawn element as `FoundElement.children` holds it. */
-interface Drawn {
+export interface Drawn {
   type: string
   props: Record<string, unknown>
   children: (Drawn | string)[]
 }
 
-const textOf = (node: Drawn | string | undefined): string =>
+export const textOf = (node: Drawn | string | undefined): string =>
   node === undefined ? '' : typeof node === 'string' ? node : node.children.map(textOf).join('')
 
 /**
