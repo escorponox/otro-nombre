@@ -1,4 +1,6 @@
 import type { MergedPullRequestItem, Shipment, ShipmentStep } from '../../types'
+import { NO_PROMOTION } from './promotion'
+import type { Promotion } from './promotion'
 import type { ChecksState } from './pull-request'
 
 /** A merge commit and its checks, as GitHub describes them. */
@@ -83,25 +85,28 @@ export function releaseCandidates(pr: MergedPullRequest): Release[] {
 
 /**
  * The Shipment steps of a merged pull request, `release` being the earliest release containing
- * its merge commit (or null). The four steps read as one pipeline: a step only runs once the one
- * before it arrived, and a release does not apply to a repo that publishes none.
+ * its merge commit (or null). CI and release read as one pipeline: the release only runs once CI
+ * arrived, and does not apply to a repo that publishes none. Staging and production are its
+ * `promotion`, read from the deployments repo (see `./promotion.ts`).
  */
-export function shipment(pr: MergedPullRequest, release: Release | null): Shipment {
+export function shipment(pr: MergedPullRequest, release: Release | null, promotion: Promotion = NO_PROMOTION): Shipment {
   const status = shipStatus(pr, release)
   const publishesReleases = pr.releases.some(each => !each.isDraft)
   return {
     ci: ciStep(pr, status),
     release: status === 'released' ? 'arrived' : status === 'pending' && pr.mergeCommit && publishesReleases ? 'running' : 'unknown',
-    // Promotions to staging and production come from the deployments repo (ticket 09, ADR 0001).
-    stg: 'unknown',
-    prod: 'unknown',
+    stg: promotion.stg,
+    prod: promotion.prod,
     tag: release?.tag ?? null,
   }
 }
 
-/** A merged pull request as the panel draws it, `release` being the earliest release containing it (or null). */
-export function toMergedItem(pr: MergedPullRequest, release: Release | null): MergedPullRequestItem {
-  return { id: pr.id, number: pr.number, repo: pr.repository, title: pr.title, url: pr.url, shipment: shipment(pr, release) }
+/**
+ * A merged pull request as the panel draws it, `release` being the earliest release containing it
+ * (or null) and `promotion` its staging and production steps.
+ */
+export function toMergedItem(pr: MergedPullRequest, release: Release | null, promotion: Promotion = NO_PROMOTION): MergedPullRequestItem {
+  return { id: pr.id, number: pr.number, repo: pr.repository, title: pr.title, url: pr.url, shipment: shipment(pr, release, promotion) }
 }
 
 function ciStep(pr: MergedPullRequest, status: ShipStatus): ShipmentStep {
