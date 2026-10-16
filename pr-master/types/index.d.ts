@@ -89,6 +89,11 @@ export interface Snapshot {
   teams: TeamSwitch[]
   /** Fetched apart from the open pull requests, so it may lag behind them. */
   merged: MergedPullRequestItem[]
+  /**
+   * Why the merged fetch that drew `merged` could not read the Promotions, whose staging and
+   * production steps are then unknown; null when it could.
+   */
+  promotionProblem: string | null
   /** When the last successful refresh finished, in `$.clock.now()` milliseconds; null before the first. */
   updatedAt: number | null
   /** Why the last refresh failed; null when it succeeded. The lists are then the last successful ones. */

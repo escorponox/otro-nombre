@@ -276,8 +276,14 @@ function footerLine(shot: Snapshot, problem: string | null): string {
   return problem === null ? refreshLine(shot) : `${problem} · ${refreshLine(shot)}`
 }
 
+/** How the last refresh went: when it last succeeded, or why it failed; then whether the Promotions could be read. */
+function refreshLine(shot: Snapshot): string {
+  const promotions = shot.promotionProblem === null ? '' : ` · Couldn't read promotions (${shot.promotionProblem})`
+  return refreshOutcome(shot) + promotions
+}
+
 /** How the last refresh went: when it last succeeded, or why it failed. */
-function refreshLine({ updatedAt, problem }: Snapshot): string {
+function refreshOutcome({ updatedAt, problem }: Snapshot): string {
   const lastUpdated = updatedAt === null ? '' : ` · last updated ${clockTime(updatedAt)}`
   if (problem?.kind === 'no-token') {
     return "No GitHub token: run `gh auth login`, or set the GitHub token in pr-master's plugin options"

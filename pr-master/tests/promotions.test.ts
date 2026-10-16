@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { GRAPHQL_URL, NOW, SURFACES, drawnMergedItem, github, mergedPullRequestNode, paneMount, runPrs, startSession, world } from './world'
+import { GRAPHQL_URL, NOW, SURFACES, drawnMergedItem, footer, github, mergedPullRequestNode, paneMount, runPrs, startSession, world } from './world'
 
 /** acme/api's CircleCI config: it pushes the `lec-api` image (and names a templated one, which is no image). */
 const CIRCLECI_CONFIG = [
@@ -64,6 +64,34 @@ for (const surface of SURFACES) {
       shipment: { ci: 'success', release: 'success', stg: 'success', prod: 'warning' },
       ref: '#12 api · merged 1d ago · v1.3.0',
     })
+    await ui.unmount()
+  })
+}
+
+for (const surface of SURFACES) {
+  test(`a failed Promotions lookup leaves stg and prod grey for the round and says so; CI and release still update (${surface})`, async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    world(on)
+    const gh = github(on)
+    apiRepo(gh)
+    gh.files['acme/apps-deployments'] = deploymentsRepo({ 'values.stg.euw1.yaml': '1.3.0', 'values.prd.euw1.yaml': '1.3.0' })
+    gh.deploymentsFailWith = 502
+    await startSession($)
+    await runPrs($)
+    await clock.settle()
+    const ui = await $.ui.mount(paneMount(surface))
+    await ui.press({ key: 'tab:merged' })
+
+    expect(await drawnMergedItem(ui, 'PR_12')).toMatchObject({
+      shipment: { ci: 'success', release: 'success', stg: 'inactive', prod: 'inactive' },
+      ref: '#12 api · merged 1d ago · v1.3.0',
+    })
+    expect(await footer(ui)).toMatch(/^Updated \d\d:\d\d · Couldn't read promotions \(HTTP 502\)$/)
+
+    gh.deploymentsFailWith = undefined
+    await ui.press({ key: 'refresh' })
+    expect(await drawnMergedItem(ui, 'PR_12')).toMatchObject({ shipment: { stg: 'success', prod: 'success' } })
+    expect(await footer(ui)).toMatch(/^Updated \d\d:\d\d$/)
     await ui.unmount()
   })
 }

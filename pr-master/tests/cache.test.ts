@@ -12,7 +12,7 @@ function cachedItem(n: number): PullRequestItem {
 
 /** A cache another session wrote at `fetchedAt`. */
 function cacheOf(fetchedAt: number, ...numbers: number[]): SnapshotCache {
-  return { snapshot: { mine: numbers.map(cachedItem), review: [], teams: [], merged: [], updatedAt: fetchedAt, problem: null }, fetchedAt, failures: 0 }
+  return { snapshot: { mine: numbers.map(cachedItem), review: [], teams: [], merged: [], promotionProblem: null, updatedAt: fetchedAt, problem: null }, fetchedAt, failures: 0 }
 }
 
 for (const surface of SURFACES) {

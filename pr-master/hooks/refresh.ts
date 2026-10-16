@@ -3,7 +3,6 @@ import type { EngineInterface, HttpResponse, On, Timer } from 'claude-code'
 
 import type {
   ActionProgress,
-  MergedPullRequestItem,
   PullRequestItem,
   RefreshProblem,
   Snapshot,
@@ -212,7 +211,7 @@ async function fetchIntoCache($: EngineInterface, options: Options): Promise<voi
       await amend(current => ({ ...current, ...lists }))
       await forgetUnlistedAnalyses($, [...lists.mine, ...lists.review])
     }),
-    fetchMerged($, options).then(merged => amend(current => ({ ...current, merged }))),
+    fetchMerged($, options).then(merged => amend(current => ({ ...current, ...merged }))),
   ])
   const failure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
   await amend(current => ({ ...current, problem: failure ? problemOf(failure.reason) : null }), failure ? failuresBefore + 1 : 0)
@@ -228,13 +227,23 @@ async function fetchOpen($: EngineInterface, options: Options): Promise<Pick<Sna
   return { mine, review, teams, updatedAt: now }
 }
 
-/** The pull requests merged within the merged window, each with its Shipment; none when the window is off. */
-async function fetchMerged($: EngineInterface, options: Options): Promise<MergedPullRequestItem[]> {
+/**
+ * The pull requests merged within the merged window, each with its Shipment; none when the window
+ * is off. A failed Promotions lookup fails only staging and production: they show unknown this
+ * round, with the reason, while CI and release still update.
+ */
+async function fetchMerged($: EngineInterface, options: Options): Promise<Pick<Snapshot, 'merged' | 'promotionProblem'>> {
   const q = mergedPullRequestsSearch(options.mergedWindow, await $.clock.now())
-  if (q === null) return []
+  if (q === null) return { merged: [], promotionProblem: null }
   const data = await graphql<MergedPullRequestsSearchData>($, options, MERGED_PULL_REQUESTS_SEARCH, { q })
   const prs = visibleOnly(mergedPullRequestsOf(data), options)
-  const regionsOf = await promotedRegions($, options, [...new Set(prs.map(pr => pr.repository))])
+  let regionsOf = (_repository: string): RegionVersion[] => []
+  let promotionProblem: string | null = null
+  try {
+    regionsOf = await promotedRegions($, options, [...new Set(prs.map(pr => pr.repository))])
+  } catch (error) {
+    promotionProblem = error instanceof Error ? error.message : String(error)
+  }
   const now = await $.clock.now()
   const ancestry: Ancestry = { kept: keptAncestryOf(await $.store.get(ANCESTRY_KEY)), answers: new Map() }
   const items = await Promise.all(prs.map(async pr => {
@@ -244,7 +253,7 @@ async function fetchMerged($: EngineInterface, options: Options): Promise<Merged
   }))
   const toKeep = ancestryToKeep(ancestry.answers)
   if (!isSameAncestry(toKeep, ancestry.kept)) await $.store.set(ANCESTRY_KEY, toKeep)
-  return items
+  return { merged: items, promotionProblem }
 }
 
 /**

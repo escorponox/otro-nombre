@@ -159,6 +159,8 @@ export function github(on: On) {
     files: {} as Record<string, Record<string, string>>,
     /** The requests of the Promotions: the CircleCI config, code searches, trees and blobs, in order. */
     deploymentRequests: [] as GitHubRequest[],
+    /** When set, every request of the Promotions answers this HTTP status. */
+    deploymentsFailWith: undefined as number | undefined,
   }
   on('process.run', ($, e) => {
     fake.argvs.push([...e.argv])
@@ -192,6 +194,9 @@ export function github(on: On) {
     const deployments = deploymentsAnswer(fake.files, e.url, request.query, request.variables)
     if (deployments) {
       fake.deploymentRequests.push(request)
+      if (fake.deploymentsFailWith !== undefined) {
+        return { value: { status: fake.deploymentsFailWith, ok: false, headers: {}, text: '{"message":"Server Error"}' } }
+      }
       return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify(deployments) } }
     }
     if (compare || isMergedSearch) {
