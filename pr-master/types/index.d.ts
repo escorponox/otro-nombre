@@ -62,6 +62,14 @@ declare module 'claude-code' {
       legend: boolean
       /** The pull requests the panel shows. */
       snapshot: Snapshot
+      /** The list's scroll: the index of the first pull request drawn in the shown tab. 0 at the top. */
+      listOffset: number
+      /**
+       * The node id (`PullRequestItem.id`) of the pull request holding the focus: the one whose
+       * element the focus ring is on, drawn inverse. Its actions carry the hotkeys. null when the
+       * focus is on nothing of a pull request; a tab change clears it.
+       */
+      focused: string | null
     }
   }
 }

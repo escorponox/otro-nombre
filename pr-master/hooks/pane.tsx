@@ -2,7 +2,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On } from 'claude-code'
 
 import type { Snapshot, Tab, TeamSwitch } from '../types'
-import { TURN_COLOUR, pullRequestItem } from './items'
+import { clampOffset, offsetShowing, scrolledOffset } from './domain/list-window'
+import { TURN_COLOUR, itemRows, pullRequestItem, wrappedRows } from './items'
 import type { ItemHandlers } from './items'
 import { EMPTY_SNAPSHOT } from './snapshot'
 
@@ -14,6 +15,14 @@ const tab = atom({ plugin: 'pr-master', key: 'tab' } as const, 'mine' as Tab)
 const legend = atom({ plugin: 'pr-master', key: 'legend' } as const, false)
 /** Written by `refresh.ts`. */
 const snapshot = atom({ plugin: 'pr-master', key: 'snapshot' } as const, EMPTY_SNAPSHOT)
+const listOffset = atom({ plugin: 'pr-master', key: 'listOffset' } as const, 0)
+const focused = atom({ plugin: 'pr-master', key: 'focused' } as const, null as string | null)
+
+/**
+ * The body the pane was last drawn in. `ui.focus` carries no size, and drawing may not write
+ * `$.state`, so the scroll into view reads it here; a reload forgets it until the next draw.
+ */
+let lastBody = { rows: 40, columns: 60 }
 
 /** The Shipment dot colours, as theme keys. */
 const SHIPMENT_COLOUR = { arrived: 'success', running: 'warning', failed: 'error', unknown: 'inactive' } as const
@@ -41,6 +50,8 @@ export function registerPane(on: On) {
     return {}
   })
 
+  registerListScroll(on)
+
   on('ui.render', { component: 'Pane', requestId: PANE_ID }, async ($, e) => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const shown = await read($, tab)
@@ -48,6 +59,9 @@ export function registerPane(on: On) {
     const shot = await read($, snapshot)
     const count = (id: Tab) => listOf(shot, id).length
     const items = listOf(shot, shown)
+    const offset = clampOffset(await read($, listOffset), items.length)
+    const focusedId = await read($, focused)
+    lastBody = { rows: e.props.scroll.bodyRows, columns: e.props.bodyColumns }
 
     const header = (
       <Box flexDirection="row" justifyContent="space-between">
@@ -95,7 +109,7 @@ export function registerPane(on: On) {
             key={`tab:${id}`}
             hotkey={hotkey}
             variant={shown === id ? 'primary' : undefined}
-            onPress={() => update($, tab, () => id)}
+            onPress={() => showTab($, id)}
           >
             {`${label} ${count(id)}`}
           </Button>
@@ -126,10 +140,13 @@ export function registerPane(on: On) {
           {shown === 'review' && shot.teams.length > 0 && teamSwitches}
         </Box>
         <Box key="list" flexDirection="column" flexGrow={1} flexShrink={1} overflow="hidden" gap={1}>
+          {offset > 0 && <Text dimColor>{`↑ ${offset} more above`}</Text>}
           {items.length === 0 ? (
             <Text dimColor>No pull requests here.</Text>
           ) : (
-            items.map(item => pullRequestItem({ Box, Text, Button }, item, ITEM_HANDLERS, { showAuthor: shown === 'review' }))
+            items.slice(offset).map(item =>
+              pullRequestItem({ Box, Text, Button }, item, ITEM_HANDLERS, { isFocused: item.id === focusedId, showAuthor: shown === 'review' }),
+            )
           )}
         </Box>
         <Box key="footer" flexShrink={0}>
@@ -140,6 +157,61 @@ export function registerPane(on: On) {
   })
 }
 
+/** A tab shows from its top, with none of its pull requests focused yet. */
+async function showTab($: EngineInterface, id: Tab) {
+  await update($, tab, () => id)
+  await update($, listOffset, () => 0)
+  await update($, focused, () => null)
+}
+
+/**
+ * The list scrolls itself, by whole pull requests: the mod answers the pane's `ui.scroll` without
+ * `next`, so the engine's window never moves and the header, legend and tabs stay put. A `ui.focus`
+ * on an element of a pull request (keyed `<kind>:<id>`) makes it the focused pull request and
+ * scrolls it into view; one on anything else leaves none focused.
+ */
+function registerListScroll(on: On) {
+  on('ui.scroll', { requestId: PANE_ID }, async ($, e) => {
+    const count = listOf(await read($, snapshot), await read($, tab)).length
+    await update($, listOffset, offset => scrolledOffset(offset, e.by, count))
+    return {}
+  })
+
+  on('ui.focus', { requestId: PANE_ID }, async ($, e, next) => {
+    const shot = await read($, snapshot)
+    const isLegendShown = await read($, legend)
+    const shown = await read($, tab)
+    const items = listOf(shot, shown)
+    const id = e.element?.slice(e.element.indexOf(':') + 1)
+    const index = items.findIndex(item => item.id === id)
+    await update($, focused, () => items[index]?.id ?? null)
+    if (index >= 0) {
+      const heights = items.map(item => itemRows(item, lastBody.columns, shown === 'review'))
+      const rows = listRows(lastBody, isLegendShown, refreshLine(shot), teamSwitchesLine(shot, shown))
+      await update($, listOffset, offset => offsetShowing(index, { offset: clampOffset(offset, items.length), heights, rows }))
+    }
+    return next(e)
+  })
+}
+
+/** The rows of the header line and of the tabs line. */
+const HEADER_ROWS = 1
+const TABS_ROWS = 1
+/** The legend's rows: its border and four lines. */
+const LEGEND_ROWS = 6
+/** The blank line the pane's `gap` puts between two blocks. */
+const GAP_ROWS = 1
+
+/**
+ * The rows the list box gets in a body: what the fixed block (header, legend, tabs, team switches),
+ * the refresh line and the blank lines between them leave.
+ */
+function listRows(body: { rows: number; columns: number }, isLegendShown: boolean, footer: string, teamSwitches: string): number {
+  const teamRows = teamSwitches === '' ? 0 : GAP_ROWS + wrappedRows(teamSwitches, body.columns)
+  const fixed = HEADER_ROWS + GAP_ROWS + (isLegendShown ? LEGEND_ROWS + GAP_ROWS : 0) + TABS_ROWS + teamRows
+  return body.rows - fixed - GAP_ROWS - GAP_ROWS - wrappedRows(footer, body.columns)
+}
+
 // Opening a pull request in the browser comes with the action row (ticket 10).
 const ITEM_HANDLERS: ItemHandlers = { onOpen: () => undefined }
 
@@ -148,6 +220,11 @@ function listOf(shot: Snapshot, id: Tab) {
   if (id === 'mine') return shot.mine
   if (id === 'review') return shot.review
   return []
+}
+
+/** The team switches' line as drawn in the shown tab, to measure it; '' when not drawn. */
+function teamSwitchesLine(shot: Snapshot, shown: Tab): string {
+  return shown === 'review' ? shot.teams.map(teamLabel).join(' ') : ''
 }
 
 /** A team switch's label: whether it is on, the team and its count. */

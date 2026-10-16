@@ -1,6 +1,0 @@
-{
-  "name": "pr-master-proto",
-  "version": "0.1.0",
-  "description": "PROTOTYPE (throwaway): PR panel variants with Turn dots, legend and two-press confirmation, on real GitHub data",
-  "types": "./types/index.d.ts"
-}

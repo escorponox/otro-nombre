@@ -5,14 +5,14 @@ export const PLUGIN = 'pr-master'
 export const PANE_ID = 'pr-master'
 export const SURFACES = ['terminal', 'desktop'] as const
 
-/** The Pane's mount arguments as a docked pane on `surface`. */
-export function paneMount(surface: (typeof SURFACES)[number]) {
+/** The Pane's mount arguments as a docked pane on `surface`, its body `bodyRows` tall. */
+export function paneMount(surface: (typeof SURFACES)[number], bodyRows = 40) {
   return {
     plugin: PLUGIN,
     surface,
     component: 'Pane',
     requestId: PANE_ID,
-    props: { title: 'PR Master', isFocused: true, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
+    props: { title: 'PR Master', isFocused: true, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows }, view: {} },
   } as const
 }
 
@@ -31,13 +31,17 @@ export function world(on: On) {
   on('ui.panes', () => ({ value: [...open].map(id => ({ id, title: id, isShown: true, isFocused: false, isPlaced: true })) }))
   on('ui.open', ($, e) => { open.add(e.id); opens.push({ id: e.id, focus: e.focus }); return { value: { isPlaced: true } } })
   on('ui.close', ($, e) => { open.delete(e.id); return { value: undefined } })
+  /** Every scroll of a window the engine itself made: one the mod let through. */
+  const engineScrolls: number[] = []
+  on('ui.scroll', ($, e) => { engineScrolls.push(e.offset); return {} })
+  on('ui.focus', () => ({}))
   /** The mod's `$.store`, shared across sessions: seed it to stand for what another session wrote. */
   const stored = new Map<string, unknown>()
   on('store.get', ($, e) => ({ value: stored.get(e.key) }))
   on('store.set', ($, e) => { stored.set(e.key, e.value); return { value: undefined } })
   on('store.delete', ($, e) => { stored.delete(e.key); return { value: undefined } })
   on('store.keys', () => ({ value: [...stored.keys()] }))
-  return { open, opens, commands, stored }
+  return { open, opens, commands, engineScrolls, stored }
 }
 
 export const GRAPHQL_URL = 'https://api.github.com/graphql'
