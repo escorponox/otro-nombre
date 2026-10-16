@@ -9,6 +9,13 @@ interface Rung {
 const isFailing = (pr: OpenPullRequest) => pr.checks === 'FAILURE' || pr.checks === 'ERROR'
 const isRunning = (pr: OpenPullRequest) => pr.checks === 'PENDING' || pr.checks === 'EXPECTED'
 
+/** The Quill reviewer's login as GitHub's GraphQL API gives it: a GitHub App, without REST's `[bot]` suffix. */
+const QUILL_REVIEWER = 'quill-reviewer'
+
+const isBlocked = (pr: OpenPullRequest) => pr.mergeState === 'BLOCKED'
+const hasQuillThreads = (pr: OpenPullRequest) => isBlocked(pr) && pr.unresolvedThreadAuthors.includes(QUILL_REVIEWER)
+const hasOtherThreads = (pr: OpenPullRequest) => isBlocked(pr) && pr.unresolvedThreadAuthors.length > 0
+
 /** The My pull request ladder (spec "Turn and labels"), first match wins. */
 const LADDER: readonly Rung[] = [
   { holds: pr => pr.isDraft, verdict: { turn: 'parked', label: 'Draft' } },
@@ -22,6 +29,8 @@ const LADDER: readonly Rung[] = [
   },
   { holds: pr => pr.mergeState === 'BEHIND', verdict: { turn: 'theirs', label: 'Behind base branch' } },
   { holds: pr => pr.mergeState === 'UNKNOWN', verdict: { turn: 'theirs', label: 'Checks running' } },
+  { holds: hasQuillThreads, verdict: { turn: 'mine', label: 'Quill comments' } },
+  { holds: hasOtherThreads, verdict: { turn: 'mine', label: 'Unresolved comments' } },
 ]
 
 const OTHERWISE: Verdict = { turn: 'theirs', label: 'Waiting for review' }
