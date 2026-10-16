@@ -1,10 +1,11 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On } from 'claude-code'
 
-import type { Snapshot, Tab, TeamSwitch } from '../types'
+import type { Analysis, PullRequestItem, RunningAnalysis, Snapshot, Tab, TeamSwitch } from '../types'
+import { analysisRef } from './domain/analysis'
 import { clampOffset, offsetShowing, scrolledOffset } from './domain/list-window'
 import { TURN_COLOUR, itemRows, pullRequestItem, wrappedRows } from './items'
-import type { ItemHandlers } from './items'
+import type { ItemAnalysis, ItemHandlers } from './items'
 import { EMPTY_SNAPSHOT } from './snapshot'
 
 export const PANE_ID = 'pr-master'
@@ -19,6 +20,9 @@ const listOffset = atom({ plugin: 'pr-master', key: 'listOffset' } as const, 0)
 const focused = atom({ plugin: 'pr-master', key: 'focused' } as const, null as string | null)
 /** Written by `actions.ts`. */
 const actionProblem = atom({ plugin: 'pr-master', key: 'actionProblem' } as const, null as string | null)
+/** Written by `analyses.ts`. */
+const analyses = atom({ plugin: 'pr-master', key: 'analyses' } as const, {} as Record<string, Analysis>)
+const analysing = atom({ plugin: 'pr-master', key: 'analysing' } as const, {} as Record<string, RunningAnalysis>)
 
 /**
  * The body the pane was last drawn in. `ui.focus` carries no size, and drawing may not write
@@ -64,6 +68,7 @@ export function registerPane(on: On) {
     const offset = clampOffset(await read($, listOffset), items.length)
     const focusedId = await read($, focused)
     const footer = footerLine(shot, await read($, actionProblem))
+    const analysisOf = await readAnalyses($)
     lastBody = { rows: e.props.scroll.bodyRows, columns: e.props.bodyColumns }
 
     const header = (
@@ -148,7 +153,11 @@ export function registerPane(on: On) {
             <Text dimColor>No pull requests here.</Text>
           ) : (
             items.slice(offset).map(item =>
-              pullRequestItem({ Box, Text, Button }, item, ITEM_HANDLERS, { isFocused: item.id === focusedId, showAuthor: shown === 'review' }),
+              pullRequestItem({ Box, Text, Button }, item, ITEM_HANDLERS, {
+                isFocused: item.id === focusedId,
+                showAuthor: shown === 'review',
+                analysis: analysisOf(item),
+              }),
             )
           )}
         </Box>
@@ -158,6 +167,13 @@ export function registerPane(on: On) {
       </Box>
     )
   })
+}
+
+/** Each pull request's analysis as drawn under it: the one this session runs and the latest result kept. */
+async function readAnalyses($: EngineInterface): Promise<(item: PullRequestItem) => ItemAnalysis> {
+  const results = await read($, analyses)
+  const running = await read($, analysing)
+  return item => ({ running: running[analysisRef(item)], result: results[analysisRef(item)] })
 }
 
 /** A tab shows from its top, with none of its pull requests focused yet. */
@@ -189,7 +205,8 @@ function registerListScroll(on: On) {
     const index = items.findIndex(item => item.id === id)
     await update($, focused, () => items[index]?.id ?? null)
     if (index >= 0) {
-      const heights = items.map(item => itemRows(item, lastBody.columns, shown === 'review'))
+      const analysisOf = await readAnalyses($)
+      const heights = items.map(item => itemRows(item, lastBody.columns, shown === 'review', analysisOf(item)))
       const rows = listRows(lastBody, isLegendShown, footerLine(shot, await read($, actionProblem)), teamSwitchesLine(shot, shown))
       await update($, listOffset, offset => offsetShowing(index, { offset: clampOffset(offset, items.length), heights, rows }))
     }

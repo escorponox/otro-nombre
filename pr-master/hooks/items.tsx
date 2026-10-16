@@ -1,6 +1,7 @@
 import type { ElementTable } from 'claude-code'
 
-import type { PullRequestItem, Turn } from '../types'
+import type { Analysis, PullRequestItem, RunningAnalysis, Turn } from '../types'
+import { ANALYSIS_ACTION, ANALYSIS_NAME, isOutOfDate } from './domain/analysis'
 
 /** The dot colours of a Turn, as theme keys. */
 export const TURN_COLOUR: Record<Turn, string> = { mine: 'error', theirs: 'warning', done: 'success', parked: 'inactive' }
@@ -27,7 +28,11 @@ interface Action {
 }
 
 /** The actions, in their order on the row. */
-const ACTIONS: readonly Action[] = [{ kind: 'copy', label: 'Copy link', hotkey: 'c', appliesTo: () => true }]
+const ACTIONS: readonly Action[] = [
+  { kind: 'copy', label: 'Copy link', hotkey: 'c', appliesTo: () => true },
+  // `analyses.ts` answers the analysis actions' presses.
+  { kind: ANALYSIS_ACTION.review, label: ANALYSIS_NAME.review, hotkey: 'n', appliesTo: item => item.isReviewRequest === true },
+]
 
 /** The columns a terminal Button takes beyond its label: it draws `[ label ]`. */
 const BUTTON_CHROME_COLUMNS = 4
@@ -38,7 +43,18 @@ export interface ItemLook {
   isFocused?: boolean
   /** A Review request also names its author, after the label. */
   showAuthor?: boolean
+  /** Its analysis: the one running and the latest result kept. */
+  analysis?: ItemAnalysis
 }
+
+/** A pull request's analysis as drawn under it. */
+export interface ItemAnalysis {
+  running?: RunningAnalysis
+  result?: Analysis
+}
+
+/** The label of the Button that carries an analysis into the conversation. */
+const CONTINUE_LABEL = 'Continue in conversation'
 
 /** The columns of an item's bullet; its text wraps in the rest. */
 const BULLET_COLUMNS = 2
@@ -54,7 +70,7 @@ export function pullRequestItem(
   { Box, Text, Button }: Elements,
   item: PullRequestItem,
   handlers: ItemHandlers,
-  { isFocused = false, showAuthor = false }: ItemLook = {},
+  { isFocused = false, showAuthor = false, analysis = {} }: ItemLook = {},
 ) {
   return (
     <Box key={`item:${item.id}`} flexDirection="row" flexShrink={0}>
@@ -73,6 +89,7 @@ export function pullRequestItem(
         </Box>
         <Text>{item.title}</Text>
         {actionRow({ Box, Text, Button }, item, isFocused)}
+        {(analysis.running || analysis.result) && analysisBlock({ Box, Text, Button }, item, analysis)}
       </Box>
     </Box>
   )
@@ -96,6 +113,35 @@ function actionRow({ Box, Text, Button }: Elements, item: PullRequestItem, isFoc
   )
 }
 
+/**
+ * Under the action row: "analysing…" while an analysis runs, and the latest result kept, headed by
+ * its name and commit, marked out of date when the pull request has moved on, with the Button that
+ * carries it into the conversation (`analyses.ts` answers its press).
+ */
+function analysisBlock({ Box, Text, Button }: Elements, item: PullRequestItem, { running, result }: ItemAnalysis) {
+  return (
+    <Box key={`analysis:${item.id}`} flexDirection="column">
+      {running && <Text dimColor>{runningLine(running)}</Text>}
+      {result && (
+        <Box flexDirection="row" flexWrap="wrap">
+          <Text bold>{resultHeading(result)}</Text>
+          {isOutOfDate(result, item) && <Text color="warning">{outOfDateMark(result)}</Text>}
+        </Box>
+      )}
+      {result && <Text wrap="wrap">{result.text}</Text>}
+      {result && (
+        <Button key={`continue:${item.id}`} onPress={() => undefined}>
+          {CONTINUE_LABEL}
+        </Button>
+      )}
+    </Box>
+  )
+}
+
+const runningLine = (running: RunningAnalysis) => `${ANALYSIS_NAME[running.kind]}: analysing…`
+const resultHeading = (result: Analysis) => `${ANALYSIS_NAME[result.kind]} of ${result.headSha.slice(0, 7)}`
+const outOfDateMark = (result: Analysis) => ` · out of date, new commits since: press ${ANALYSIS_NAME[result.kind]} to run it again`
+
 function actionsOf(item: PullRequestItem): Action[] {
   return ACTIONS.filter(action => action.appliesTo(item))
 }
@@ -105,10 +151,22 @@ function actionsOf(item: PullRequestItem): Action[] {
  * the column's width (the first line as if marked stale, to err tall). The list's scroll into
  * view counts on it: keep it in step with the drawing.
  */
-export function itemRows(item: PullRequestItem, columns: number, showAuthor = false): number {
+export function itemRows(item: PullRequestItem, columns: number, showAuthor = false, analysis: ItemAnalysis = {}): number {
   const firstLine = `#${item.number} ${repoName(item.repo)} · ${meta(item, showAuthor)} · stale`
   const width = columns - BULLET_COLUMNS
-  return wrappedRows(firstLine, width) + wrappedRows(item.title, width) + actionRowRows(item, width)
+  return wrappedRows(firstLine, width) + wrappedRows(item.title, width) + actionRowRows(item, width) + analysisRows(item, analysis, width)
+}
+
+/** The rows `analysisBlock` takes in `columns`; none when there is no analysis to draw. */
+function analysisRows(item: PullRequestItem, { running, result }: ItemAnalysis, columns: number): number {
+  let rows = running ? wrappedRows(runningLine(running), columns) : 0
+  if (result) {
+    const heading = resultHeading(result) + (isOutOfDate(result, item) ? outOfDateMark(result) : '')
+    rows += wrappedRows(heading, columns)
+    rows += result.text.split('\n').reduce((sum, line) => sum + wrappedRows(line, columns), 0)
+    rows += wrappedRows(CONTINUE_LABEL, columns - BUTTON_CHROME_COLUMNS)
+  }
+  return rows
 }
 
 /** The rows the action row takes in `columns`, its Buttons wrapping whole onto the next line. */
