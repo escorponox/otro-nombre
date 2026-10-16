@@ -1,5 +1,5 @@
 import type { ShipmentStep } from '../../types'
-import type { Release } from './shipment'
+import type { MergedPullRequest, Release } from './shipment'
 
 /**
  * Where a merged pull request stands in one region of an environment: the region runs a version
@@ -7,24 +7,45 @@ import type { Release } from './shipment'
  */
 export type RegionPromotion = 'carrying' | 'awaiting' | 'unknown'
 
+/** A merged pull request as its Promotion reads it: when it merged, and its repo's newest releases. */
+export type PromotedPullRequest = Pick<MergedPullRequest, 'mergedAt' | 'releases'>
+
 /**
- * The Promotion of one region, first match wins. `release` is the release whose tag is the
- * region's promoted version (null when none matches); `contains` says whether that release's tag
- * contains the merge commit by ancestry (null when it cannot be told).
+ * The Promotion of one region running `version` (null when its file promotes none), first match
+ * wins. `contains` says whether the tag `ancestryTag` names contains the merge commit (null when
+ * there is no such tag or it cannot be told).
+ *
+ * A version no fetched release names is older than every fetched release, as GitHub lists the
+ * newest ones: when the oldest of them was cut before the merge, every release cut since is among
+ * them, so the region runs a version older than the merge.
  */
-export function regionPromotion(mergedAt: string, release: Release | null, contains: boolean | null): RegionPromotion {
-  if (!release) return 'unknown'
-  if (!hangsOnAncestry(mergedAt, release)) return 'awaiting'
+export function regionPromotion(pr: PromotedPullRequest, version: string | null, contains: boolean | null): RegionPromotion {
+  if (version === null) return 'unknown'
+  const release = releaseOfVersion(pr.releases, version)
+  if (!release) return oldestPredatesMerge(pr) ? 'awaiting' : 'unknown'
+  if (!isCutSinceMerge(pr, release)) return 'awaiting'
   if (contains === null) return 'unknown'
   return contains ? 'carrying' : 'awaiting'
 }
 
 /**
- * Whether the region's Promotion hangs on ancestry: its release was cut at or after the merge.
- * Only then is it worth asking GitHub whether that release's tag contains the merge commit.
+ * The tag whose ancestry decides the Promotion of a region running `version`: the promoted
+ * release's, when it was cut at or after the merge; null otherwise. Only then is it worth asking
+ * GitHub whether that tag contains the merge commit.
  */
-export function hangsOnAncestry(mergedAt: string, release: Release | null): release is Release {
-  return release !== null && Date.parse(release.createdAt) >= Date.parse(mergedAt)
+export function ancestryTag(pr: PromotedPullRequest, version: string | null): string | null {
+  const release = releaseOfVersion(pr.releases, version)
+  return release && isCutSinceMerge(pr, release) ? release.tag : null
+}
+
+function isCutSinceMerge(pr: PromotedPullRequest, release: Release): boolean {
+  return Date.parse(release.createdAt) >= Date.parse(pr.mergedAt)
+}
+
+/** Whether the oldest fetched release (drafts included, as GitHub lists them) was cut before the merge. */
+function oldestPredatesMerge(pr: PromotedPullRequest): boolean {
+  const created = pr.releases.map(release => Date.parse(release.createdAt))
+  return created.length > 0 && Math.min(...created) < Date.parse(pr.mergedAt)
 }
 
 /**

@@ -1,26 +1,52 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { environmentStep, regionFileOf, regionPromotion, releaseOfVersion, stableVersionOf } from '../hooks/domain/promotion'
+import { ancestryTag, environmentStep, regionFileOf, regionPromotion, releaseOfVersion, stableVersionOf } from '../hooks/domain/promotion'
 import type { Release } from '../hooks/domain/shipment'
 
 const MERGED_AT = '2026-10-15T10:00:00Z'
 const release = (tag: string, createdAt: string): Release => ({ tag, createdAt, isDraft: false })
 
+/** Merged at 10:00 on 2026-10-15; the repo's newest releases (newest first), v1.2.0 cut before the merge, v1.3.0 after it. */
+const merged = { mergedAt: MERGED_AT, releases: [release('v1.3.0', '2026-10-15T11:00:00Z'), release('v1.2.0', '2026-10-15T09:59:59Z')] }
+/** The same, but its oldest fetched release was cut after the merge: older ones may be missing from the list. */
+const mergedBeforeEveryRelease = { mergedAt: MERGED_AT, releases: [release('v1.4.0', '2026-10-16T09:00:00Z'), release('v1.3.0', '2026-10-15T11:00:00Z')] }
+
 describe('the Promotion of one region, first match wins', () => {
-  test('with no release matching its version it is unknown', () => {
-    expect(regionPromotion(MERGED_AT, null, true)).toBe('unknown')
+  test('with no promoted version it is unknown', () => {
+    expect(regionPromotion(merged, null, null)).toBe('unknown')
+  })
+  test('running a version no fetched release names, when the oldest fetched release predates the merge, it is awaiting', () => {
+    // Every release cut since the merge was fetched: the region runs an older version.
+    expect(regionPromotion(merged, '0.9.0', null)).toBe('awaiting')
+  })
+  test('running a version no fetched release names, when every fetched release is newer than the merge, it is unknown', () => {
+    expect(regionPromotion(mergedBeforeEveryRelease, '1.1.0', null)).toBe('unknown')
+  })
+  test('with no releases fetched it is unknown', () => {
+    expect(regionPromotion({ mergedAt: MERGED_AT, releases: [] }, '1.3.0', null)).toBe('unknown')
   })
   test('running a release cut before the merge it is awaiting, whatever the ancestry says', () => {
-    expect(regionPromotion(MERGED_AT, release('v1.2.0', '2026-10-15T09:59:59Z'), true)).toBe('awaiting')
+    expect(regionPromotion(merged, '1.2.0', true)).toBe('awaiting')
   })
   test('running a release cut after the merge that contains it, it is carrying', () => {
-    expect(regionPromotion(MERGED_AT, release('v1.3.0', '2026-10-15T11:00:00Z'), true)).toBe('carrying')
+    expect(regionPromotion(merged, '1.3.0', true)).toBe('carrying')
   })
   test('running a release cut after the merge that does not contain it, it is awaiting', () => {
-    expect(regionPromotion(MERGED_AT, release('v1.3.0', '2026-10-15T11:00:00Z'), false)).toBe('awaiting')
+    expect(regionPromotion(merged, '1.3.0', false)).toBe('awaiting')
   })
   test('when the ancestry cannot be told, it is unknown', () => {
-    expect(regionPromotion(MERGED_AT, release('v1.3.0', '2026-10-15T11:00:00Z'), null)).toBe('unknown')
+    expect(regionPromotion(merged, '1.3.0', null)).toBe('unknown')
+  })
+})
+
+describe('the release tag whose ancestry decides a region', () => {
+  test('is the tag of the promoted release when it was cut at or after the merge', () => {
+    expect(ancestryTag(merged, '1.3.0')).toBe('v1.3.0')
+  })
+  test('none when the promoted release predates the merge, no release names the version, or there is no version', () => {
+    expect(ancestryTag(merged, '1.2.0')).toBeNull()
+    expect(ancestryTag(merged, '0.9.0')).toBeNull()
+    expect(ancestryTag(merged, null)).toBeNull()
   })
 })
 

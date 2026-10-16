@@ -141,7 +141,7 @@ test('customer staging and production (cst, cpr) count as staging and production
   await ui.unmount()
 })
 
-test('a region running a version no release names leaves its environment grey', async ($, on) => {
+test('a region running a version older than the fetched releases shows its environment on its way', async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   world(on)
   const gh = github(on)
@@ -157,7 +157,8 @@ test('a region running a version no release names leaves its environment grey', 
   const ui = await $.ui.mount(paneMount('terminal'))
   await ui.press({ key: 'tab:merged' })
 
-  expect(await drawnMergedItem(ui, 'PR_12')).toMatchObject({ shipment: { stg: 'inactive', prod: 'success' } })
+  // v1.2.0, the oldest release fetched, predates the merge: 0.9.0 is older still.
+  expect(await drawnMergedItem(ui, 'PR_12')).toMatchObject({ shipment: { stg: 'warning', prod: 'success' } })
   await ui.unmount()
 })
 

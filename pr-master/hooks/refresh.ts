@@ -13,7 +13,7 @@ import type {
 import { ARM_MS, pressOf } from './domain/confirmation'
 import { toItem } from './domain/item'
 import { isDue } from './domain/polling'
-import { hangsOnAncestry, promotionOf, regionFileOf, regionPromotion, releaseOfVersion, stableVersionOf } from './domain/promotion'
+import { ancestryTag, promotionOf, regionFileOf, regionPromotion, stableVersionOf } from './domain/promotion'
 import type { Environment, Promotion, RegionPromotion, RegionVersion } from './domain/promotion'
 import type { OpenPullRequest } from './domain/pull-request'
 import { readiness } from './domain/readiness'
@@ -272,9 +272,9 @@ async function regionsPromotion(
 ): Promise<Promotion> {
   const promotions: { environment: Environment; promotion: RegionPromotion }[] = []
   for (const region of regions) {
-    const release = releaseOfVersion(pr.releases, region.version)
-    const contains = hangsOnAncestry(pr.mergedAt, release) ? await containsMergeCommit($, options, pr, release.tag, ancestry) : null
-    promotions.push({ environment: region.environment, promotion: regionPromotion(pr.mergedAt, release, contains) })
+    const tag = ancestryTag(pr, region.version)
+    const contains = tag === null ? null : await containsMergeCommit($, options, pr, tag, ancestry)
+    promotions.push({ environment: region.environment, promotion: regionPromotion(pr, region.version, contains) })
   }
   return promotionOf(promotions)
 }
