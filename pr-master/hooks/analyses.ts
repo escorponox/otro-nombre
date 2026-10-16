@@ -3,6 +3,8 @@ import type { AgentSpawnResult, EngineInterface, On, TurnCompleteInput } from 'c
 
 import type { Analysis, AnalysisKind, PullRequestItem, RunningAnalysis } from '../types'
 import { ANALYSIS_NAME, analysisKey, analysisOfAction, analysisPrompt, analysisRef, continuePrompt, latestAnalyses } from './domain/analysis'
+import { splitKey } from './domain/element-key'
+import { messageOf, refOf } from './domain/format'
 import { EMPTY_SNAPSHOT, findOpenItem } from './snapshot'
 
 /** The subagent type every analysis runs on: read-only tools, since an analysis changes nothing. */
@@ -72,12 +74,12 @@ async function analyse($: EngineInterface, kind: AnalysisKind, item: PullRequest
     await update($, analysing, ({ [ref]: _, ...others }) => others)
     await fail($, problem)
   }
-  const name = `${ANALYSIS_NAME[kind]} of #${item.number} ${item.repo}`
+  const name = `${ANALYSIS_NAME[kind]} of ${refOf(item)}`
   let spawned: AgentSpawnResult
   try {
     spawned = await $.agent.spawn({ prompt: analysisPrompt(kind, item), description: name, subagentType: SUBAGENT_TYPE })
   } catch (error) {
-    await stop(`Couldn't start the ${name} (${error instanceof Error ? error.message : String(error)})`)
+    await stop(`Couldn't start the ${name} (${messageOf(error)})`)
     return
   }
   if (spawned.deny !== undefined) {
@@ -129,11 +131,5 @@ async function continueInConversation($: EngineInterface, item: PullRequestItem)
 
 async function fail($: EngineInterface, problem: string) {
   await update($, actionProblem, () => problem)
-}
-
-/** `review-analysis:PR_12` -> `['review-analysis', 'PR_12']`; a key without a colon has no item id. */
-function splitKey(element: string): [string, string] {
-  const colon = element.indexOf(':')
-  return colon < 0 ? [element, ''] : [element.slice(0, colon), element.slice(colon + 1)]
 }
 

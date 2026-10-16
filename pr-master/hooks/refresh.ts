@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, HttpResponse, On, Timer } from 'claude-code'
+import type { EngineInterface, HttpInit, HttpResponse, On, Timer } from 'claude-code'
 
 import type {
   ActionProgress,
@@ -14,6 +14,8 @@ import type { KeptAncestry } from './domain/ancestry'
 import { unlistedAnalysisKeys } from './domain/analysis'
 import { ARM_MS, pressOf } from './domain/confirmation'
 import { toItem } from './domain/item'
+import { splitKey } from './domain/element-key'
+import { messageOf } from './domain/format'
 import { isDue } from './domain/polling'
 import { ancestryTag, promotionOf, regionFileOf, regionPromotion, stableVersionOf } from './domain/promotion'
 import type { Environment, Promotion, RegionPromotion, RegionVersion } from './domain/promotion'
@@ -242,7 +244,7 @@ async function fetchMerged($: EngineInterface, options: Options): Promise<Pick<S
   try {
     regionsOf = await promotedRegions($, options, [...new Set(prs.map(pr => pr.repository))])
   } catch (error) {
-    promotionProblem = error instanceof Error ? error.message : String(error)
+    promotionProblem = messageOf(error)
   }
   const now = await $.clock.now()
   const ancestry: Ancestry = { kept: keptAncestryOf(await $.store.get(ANCESTRY_KEY)), answers: new Map() }
@@ -503,7 +505,7 @@ async function runWriteAction($: EngineInterface, options: Options, kind: string
     await graphql($, options, request.query, request.variables)
     await show({ kind, phase: 'done' })
   } catch (error) {
-    await show({ kind, phase: 'failed', problem: error instanceof Error ? error.message : String(error) })
+    await show({ kind, phase: 'failed', problem: messageOf(error) })
   }
   await refreshAnew($, options)
 }
@@ -512,12 +514,6 @@ async function disarm($: EngineInterface): Promise<void> {
   disarmTimer?.cancel()
   disarmTimer = undefined
   await update($, armed, () => null)
-}
-
-/** `merge:PR_12` -> `['merge', 'PR_12']`; a key without a colon has no item id. */
-function splitKey(element: string): [string, string] {
-  const colon = element.indexOf(':')
-  return colon < 0 ? [element, ''] : [element.slice(0, colon), element.slice(colon + 1)]
 }
 
 /** `prs` with their unresolved review threads, read by a second query for the ones that need them. */
@@ -531,15 +527,16 @@ async function withThreads($: EngineInterface, options: Options, prs: OpenPullRe
 /** Runs a GraphQL query over the host's HTTP fetch; rejects with `NoToken` or `GitHubError`. */
 async function graphql<Data>($: EngineInterface, options: Options, query: string, variables: Record<string, unknown>): Promise<Data> {
   const request = graphqlRequest(await authorisation($, options), query, variables)
-  const response = await $.http.fetch(request.url, request.init)
-  // A revoked token: obtain it again next time.
-  if (response.status === 401) token = undefined
-  return graphqlData<Data>(response)
+  return graphqlData<Data>(await send($, request))
 }
 
 /** Runs a REST GET over the host's HTTP fetch and answers GitHub's response; rejects with `NoToken`. */
 async function rest($: EngineInterface, options: Options, path: string): Promise<HttpResponse> {
-  const request = restRequest(await authorisation($, options), path)
+  return send($, restRequest(await authorisation($, options), path))
+}
+
+/** Sends a request to GitHub over the host's HTTP fetch; a revoked token is obtained again next time. */
+async function send($: EngineInterface, request: { url: string; init: HttpInit }): Promise<HttpResponse> {
   const response = await $.http.fetch(request.url, request.init)
   if (response.status === 401) token = undefined
   return response
@@ -573,5 +570,5 @@ async function ghToken($: EngineInterface): Promise<string | undefined> {
 
 function problemOf(error: unknown): RefreshProblem {
   if (error instanceof NoToken) return { kind: 'no-token' }
-  return { kind: 'failed', reason: error instanceof Error ? error.message : String(error) }
+  return { kind: 'failed', reason: messageOf(error) }
 }

@@ -3,6 +3,7 @@ import type { EngineInterface, On } from 'claude-code'
 
 import type { ActionProgress, Analysis, MergedPullRequestItem, PullRequestItem, RunningAnalysis, Snapshot, Tab, TeamSwitch } from '../types'
 import { analysisRef } from './domain/analysis'
+import { splitKey } from './domain/element-key'
 import { clampOffset, offsetShowing, scrolledOffset } from './domain/list-window'
 import { TURN_COLOUR, itemRows, pullRequestItem, wrappedRows } from './items'
 import type { ItemAnalysis } from './items'
@@ -209,7 +210,7 @@ function registerListScroll(on: On) {
     const isLegendShown = await read($, legend)
     const shown = await read($, tab)
     const items = listOf(shot, shown)
-    const id = e.element?.slice(e.element.indexOf(':') + 1)
+    const id = e.element === undefined ? undefined : splitKey(e.element)[1]
     const index = items.findIndex(item => item.id === id)
     await update($, focused, () => items[index]?.id ?? null)
     if (index >= 0) {

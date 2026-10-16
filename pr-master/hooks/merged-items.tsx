@@ -1,4 +1,5 @@
 import type { MergedPullRequestItem, Shipment, ShipmentStep } from '../types'
+import { shortRefOf } from './domain/format'
 import { BULLET_COLUMNS, actionRow, actionRowRows, wrappedRows } from './items'
 import type { Elements } from './items'
 
@@ -27,7 +28,7 @@ export interface MergedItemLook {
  */
 export function mergedPullRequestItem({ Box, Text, Button }: Elements, item: MergedPullRequestItem, { isFocused = false }: MergedItemLook) {
   const { shipment } = item
-  const ref = [`#${item.number} ${repoName(item.repo)}`, mergedAgo(item.mergedDays), ...(shipment.tag ? [shipment.tag] : [])].join(' · ')
+  const ref = [shortRefOf(item), mergedAgo(item.mergedDays), ...(shipment.tag ? [shipment.tag] : [])].join(' · ')
   return (
     <Box key={`item:${item.id}`} flexDirection="row" flexShrink={0}>
       <Box width={BULLET_COLUMNS} flexShrink={0}>
@@ -78,9 +79,4 @@ export function mergedItemRows(item: MergedPullRequestItem, columns: number): nu
     1 +
     actionRowRows({ tab: 'merged', item }, width - INDENT_COLUMNS, {})
   )
-}
-
-/** `owner/name` -> `name`. */
-function repoName(nameWithOwner: string): string {
-  return nameWithOwner.slice(nameWithOwner.indexOf('/') + 1)
 }

@@ -2,6 +2,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, UiPressArgument } from 'claude-code'
 
 import type { MergedPullRequestItem, PullRequestItem } from '../types'
+import { splitKey } from './domain/element-key'
+import { messageOf, refOf } from './domain/format'
 import { EMPTY_SNAPSHOT, findItem } from './snapshot'
 
 const OPEN_TIMEOUT_MS = 10_000
@@ -46,7 +48,7 @@ async function openInBrowser($: EngineInterface, item: ListedItem) {
     const run = await $.process.run(['open', item.url], { timeoutMs: OPEN_TIMEOUT_MS })
     if (run.exitCode !== 0) await fail($, `Couldn't open ${refOf(item)} (${run.stderr.trim() || `exit ${run.exitCode}`})`)
   } catch (error) {
-    await fail($, `Couldn't open ${refOf(item)} (${error instanceof Error ? error.message : String(error)})`)
+    await fail($, `Couldn't open ${refOf(item)} (${messageOf(error)})`)
   }
 }
 
@@ -58,15 +60,4 @@ async function copyLink($: EngineInterface, press: UiPressArgument, item: Listed
 
 async function fail($: EngineInterface, problem: string) {
   await update($, actionProblem, () => problem)
-}
-
-/** `copy:PR_12` -> `['copy', 'PR_12']`; a key without a colon has no item id. */
-function splitKey(element: string): [string, string] {
-  const colon = element.indexOf(':')
-  return colon < 0 ? [element, ''] : [element.slice(0, colon), element.slice(colon + 1)]
-}
-
-/** `#12 owner/name`. */
-function refOf(item: ListedItem): string {
-  return `#${item.number} ${item.repo}`
 }

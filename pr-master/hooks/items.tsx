@@ -2,6 +2,7 @@ import type { ElementTable } from 'claude-code'
 
 import type { ActionProgress, Analysis, MergedPullRequestItem, PullRequestItem, RunningAnalysis, Tab, Turn } from '../types'
 import { ANALYSIS_ACTION, ANALYSIS_NAME, isOutOfDate } from './domain/analysis'
+import { shortRefOf } from './domain/format'
 
 /** The dot colours of a Turn, as theme keys. */
 export const TURN_COLOUR: Record<Turn, string> = { mine: 'error', theirs: 'warning', done: 'success', parked: 'inactive' }
@@ -124,7 +125,7 @@ export function pullRequestItem({ Box, Text, Button }: Elements, item: PullReque
         <Box flexDirection="row" flexWrap="wrap">
           {/* No hotkey: a plain Button draws its hotkey as a visible prefix. `actions.ts` answers the press. */}
           <Button key={`pr:${item.id}`} plain onPress={() => undefined}>
-            <Text bold inverse={isFocused}>{`#${item.number} ${repoName(item.repo)}`}</Text>
+            <Text bold inverse={isFocused}>{shortRefOf(item)}</Text>
           </Button>
           <Text dimColor>{' · '}</Text>
           <Text dimColor>{meta(item, showAuthor)}</Text>
@@ -227,7 +228,7 @@ function progressText(progress: ActionProgress | undefined): string | undefined 
  * view counts on it: keep it in step with the drawing.
  */
 export function itemRows(item: PullRequestItem, columns: number, look: ItemLook): number {
-  const firstLine = `#${item.number} ${repoName(item.repo)} · ${meta(item, look.showAuthor ?? false)} · stale`
+  const firstLine = `${shortRefOf(item)} · ${meta(item, look.showAuthor ?? false)} · stale`
   const width = columns - BULLET_COLUMNS
   return (
     wrappedRows(firstLine, width) +
@@ -282,9 +283,4 @@ export function wrappedRows(text: string, columns: number): number {
 function meta(item: PullRequestItem, showAuthor: boolean): string {
   const byAuthor = showAuthor ? ` · by ${item.author}` : ''
   return `${item.label}${byAuthor} · ${item.ageDays}d`
-}
-
-/** `owner/name` -> `name`. */
-function repoName(nameWithOwner: string): string {
-  return nameWithOwner.slice(nameWithOwner.indexOf('/') + 1)
 }
