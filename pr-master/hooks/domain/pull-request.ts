@@ -18,6 +18,10 @@ export interface OpenPullRequest {
   url: string
   /** `owner/name`. */
   repository: string
+  /** The repository owner's login. */
+  owner: string
+  /** Whether the repository is private. */
+  isPrivate: boolean
   /** The author's login. */
   author: string
   /** ISO 8601. */

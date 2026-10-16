@@ -1,0 +1,67 @@
+import { expect, mock, test } from 'claude-code/testing'
+
+import { MY_PULL_REQUESTS_QUERY, SURFACES, github, paneMount, pullRequestNode, runPrs, startSession, world } from './world'
+
+const NOW = Date.parse('2026-10-16T12:00:00Z')
+
+for (const surface of SURFACES) {
+  test(`a pull request in a hidden organisation appears in no tab and no count (${surface})`, { options: { hiddenOrgs: ['legacy-corp'] } }, async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    world(on)
+    github(on).searches[MY_PULL_REQUESTS_QUERY] = [
+      pullRequestNode(1, { repo: 'acme/api' }),
+      pullRequestNode(2, { repo: 'legacy-corp/monolith' }),
+    ]
+    await startSession($)
+    await runPrs($)
+    await clock.settle()
+    const ui = await $.ui.mount(paneMount(surface))
+
+    expect((await ui.find({ key: 'tab:mine' }))?.text).toBe('Mine 1')
+    expect(await ui.find({ key: 'item:PR_1' })).toBeDefined()
+    expect(await ui.find({ key: 'item:PR_2' })).toBeUndefined()
+    await ui.unmount()
+  })
+
+  test(`a private pull request with the private switch off appears in no tab and no count (${surface})`, { options: { showPrivate: false } }, async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    world(on)
+    github(on).searches[MY_PULL_REQUESTS_QUERY] = [
+      pullRequestNode(1, { repo: 'acme/api' }),
+      pullRequestNode(2, { repo: 'acme/secret', isPrivate: true }),
+    ]
+    await startSession($)
+    await runPrs($)
+    await clock.settle()
+    const ui = await $.ui.mount(paneMount(surface))
+
+    expect((await ui.find({ key: 'tab:mine' }))?.text).toBe('Mine 1')
+    expect(await ui.find({ key: 'item:PR_1' })).toBeDefined()
+    expect(await ui.find({ key: 'item:PR_2' })).toBeUndefined()
+    await ui.unmount()
+  })
+}
+
+test('private repositories are shown unless the person turns them off', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  world(on)
+  github(on).searches[MY_PULL_REQUESTS_QUERY] = [pullRequestNode(2, { repo: 'acme/secret', isPrivate: true })]
+  await startSession($)
+  await runPrs($)
+  await clock.settle()
+  const ui = await $.ui.mount(paneMount('terminal'))
+
+  expect((await ui.find({ key: 'tab:mine' }))?.text).toBe('Mine 1')
+  await ui.unmount()
+})
+
+test("the search asks GitHub for each repository's owner and privacy", async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  world(on)
+  const gh = github(on)
+  await startSession($)
+  await runPrs($)
+  await clock.settle()
+
+  expect(gh.requests[0]?.query).toContain('repository { nameWithOwner isPrivate owner { login } }')
+})

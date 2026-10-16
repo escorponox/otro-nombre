@@ -98,7 +98,7 @@ export function github(on: On) {
   return fake
 }
 
-/** A pull request node as GitHub's GraphQL search returns it: an approved, clean one unless `facts` say otherwise. */
+/** A pull request node as GitHub's GraphQL search returns it: an approved, clean, public one unless `facts` say otherwise. */
 export function pullRequestNode(number: number, facts: {
   repo?: string
   title?: string
@@ -108,6 +108,7 @@ export function pullRequestNode(number: number, facts: {
   mergeStateStatus?: string
   reviewDecision?: string | null
   checks?: string | null
+  isPrivate?: boolean
 } = {}) {
   const repo = facts.repo ?? 'acme/api'
   return {
@@ -121,7 +122,7 @@ export function pullRequestNode(number: number, facts: {
     reviewDecision: facts.reviewDecision === undefined ? 'APPROVED' : facts.reviewDecision,
     createdAt: facts.createdAt ?? '2026-10-13T00:00:00Z',
     author: { login: 'me' },
-    repository: { nameWithOwner: repo },
+    repository: { nameWithOwner: repo, isPrivate: facts.isPrivate ?? false, owner: { login: repo.split('/')[0] } },
     commits: { nodes: [{ commit: { statusCheckRollup: facts.checks === null ? null : { state: facts.checks ?? 'SUCCESS' } } }] },
   }
 }

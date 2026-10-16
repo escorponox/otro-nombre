@@ -4,6 +4,7 @@ import type { EngineInterface, On } from 'claude-code'
 import type { RefreshProblem } from '../types'
 import { toItem } from './domain/item'
 import { readiness } from './domain/readiness'
+import { visibleOnly } from './domain/visibility'
 import { GH_TOKEN_COMMANDS, NoToken, graphqlData, graphqlRequest } from './github/client'
 import { MY_PULL_REQUESTS, OPEN_PULL_REQUESTS_SEARCH, openPullRequestsOf } from './github/open-pull-requests'
 import type { OpenPullRequestsSearchData } from './github/open-pull-requests'
@@ -47,7 +48,7 @@ async function refresh($: EngineInterface, options: Options): Promise<void> {
   try {
     const data = await graphql<OpenPullRequestsSearchData>($, options, OPEN_PULL_REQUESTS_SEARCH, { q: MY_PULL_REQUESTS })
     const now = await $.clock.now()
-    const mine = openPullRequestsOf(data).map(pr => toItem(pr, readiness(pr), now, options.staleThreshold))
+    const mine = visibleOnly(openPullRequestsOf(data), options).map(pr => toItem(pr, readiness(pr), now, options.staleThreshold))
     await update($, snapshot, () => ({ mine, updatedAt: now, problem: null }))
   } catch (error) {
     await update($, snapshot, last => ({ ...last, problem: problemOf(error) }))
