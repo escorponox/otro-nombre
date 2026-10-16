@@ -39,6 +39,18 @@ export interface Snapshot {
   problem: RefreshProblem | null
 }
 
+/**
+ * The snapshot cache in `$.store`, shared by the person's sessions; last writer wins.
+ * A field a later version adds to `Snapshot` may be missing from a cache an older version wrote.
+ */
+export interface SnapshotCache {
+  snapshot: Snapshot
+  /** When the last fetch finished, successfully or not, in `$.clock.now()` milliseconds. */
+  fetchedAt: number
+  /** How many fetches have failed in a row since the last success. */
+  failures: number
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'pr-master': {
