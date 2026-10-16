@@ -1,12 +1,12 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, On, TurnCompleteInput } from 'claude-code'
+import type { AgentSpawnResult, EngineInterface, On, TurnCompleteInput } from 'claude-code'
 
 import type { Analysis, AnalysisKind, PullRequestItem, RunningAnalysis } from '../types'
 import { ANALYSIS_NAME, analysisKey, analysisOfAction, analysisPrompt, analysisRef, continuePrompt, latestAnalyses } from './domain/analysis'
 import { EMPTY_SNAPSHOT, findOpenItem } from './snapshot'
 
-/** The subagent type every analysis runs on. */
-const SUBAGENT_TYPE = 'general-purpose'
+/** The subagent type every analysis runs on: read-only tools, since an analysis changes nothing. */
+const SUBAGENT_TYPE = 'Explore'
 
 /** The key prefix of the Button that carries an analysis into the conversation. */
 const CONTINUE = 'continue'
@@ -35,7 +35,8 @@ export function registerAnalyses(on: On) {
     if (kind === undefined && action !== CONTINUE) return pressed
     const item = findOpenItem(await read($, snapshot), id)
     if (!item) return pressed
-    if (kind !== undefined) await analyse($, kind, item)
+    // The subagent may take a while to start: the press does not wait for it.
+    if (kind !== undefined) void analyse($, kind, item)
     else await continueInConversation($, item)
     return pressed
   })
@@ -52,7 +53,11 @@ export function registerAnalyses(on: On) {
   })
 }
 
-/** Starts a `kind` analysis of `item`'s head commit, unless one of the pull request already runs. */
+/**
+ * Starts a `kind` analysis of `item`'s head commit, unless one of the pull request already runs.
+ * A spawn that is refused, fails or hands back no `agentId` (so its answer could never be matched)
+ * leaves nothing running and says why on the refresh line.
+ */
 async function analyse($: EngineInterface, kind: AnalysisKind, item: PullRequestItem) {
   const ref = analysisRef(item)
   let isStarting = false
@@ -63,17 +68,26 @@ async function analyse($: EngineInterface, kind: AnalysisKind, item: PullRequest
   })
   if (!isStarting) return
 
-  const spawned = await $.agent.spawn({
-    prompt: analysisPrompt(kind, item),
-    description: `${ANALYSIS_NAME[kind]} of #${item.number} ${item.repo}`,
-    subagentType: SUBAGENT_TYPE,
-  })
-  if (spawned.deny !== undefined) {
+  const stop = async (problem: string) => {
     await update($, analysing, ({ [ref]: _, ...others }) => others)
-    await fail($, `Couldn't start the ${ANALYSIS_NAME[kind]} of #${item.number} ${item.repo} (${spawned.deny})`)
+    await fail($, problem)
+  }
+  const name = `${ANALYSIS_NAME[kind]} of #${item.number} ${item.repo}`
+  let spawned: AgentSpawnResult
+  try {
+    spawned = await $.agent.spawn({ prompt: analysisPrompt(kind, item), description: name, subagentType: SUBAGENT_TYPE })
+  } catch (error) {
+    await stop(`Couldn't start the ${name} (${error instanceof Error ? error.message : String(error)})`)
     return
   }
-  await update($, analysing, running => ({ ...running, [ref]: { kind, headSha: item.headSha, agentId: spawned.agentId } }))
+  if (spawned.deny !== undefined) {
+    await stop(`Couldn't start the ${name} (${spawned.deny})`)
+  } else if (spawned.agentId === undefined) {
+    await stop(`Couldn't follow the ${name} (no subagent id)`)
+  } else {
+    const { agentId } = spawned
+    await update($, analysing, running => ({ ...running, [ref]: { kind, headSha: item.headSha, agentId } }))
+  }
 }
 
 /**

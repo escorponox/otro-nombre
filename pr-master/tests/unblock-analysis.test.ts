@@ -28,12 +28,14 @@ for (const surface of SURFACES) {
     await ui.unmount()
   })
 
-  test(`Unblock analysis starts a background subagent naming the Readiness and shows analysing… (${surface})`, async ($, on) => {
-    const { ui, engine } = await openMineTab($, on, surface)
+  test(`Unblock analysis starts a background read-only subagent naming the Readiness and shows analysing… (${surface})`, async ($, on) => {
+    const { ui, engine, clock } = await openMineTab($, on, surface)
+    engine.agents.wait = () => clock.sleep(1_000)
     expect(await analysisOf(ui, 'PR_12')).toBeUndefined()
 
     await ui.press({ key: 'unblock-analysis:PR_12' })
     expect(engine.spawns).toHaveLength(1)
+    expect(engine.spawns[0]?.subagentType).toBe('Explore')
     expect(engine.spawns[0]?.description).toBe('Unblock analysis of #12 acme/api')
     expect(engine.spawns[0]?.prompt).toContain('https://github.com/acme/api/pull/12')
     expect(engine.spawns[0]?.prompt).toContain(headShaOf(12))
@@ -44,7 +46,8 @@ for (const surface of SURFACES) {
   })
 
   test(`a second Unblock analysis press while it runs starts nothing (${surface})`, async ($, on) => {
-    const { ui, engine } = await openMineTab($, on, surface)
+    const { ui, engine, clock } = await openMineTab($, on, surface)
+    engine.agents.wait = () => clock.sleep(1_000)
 
     await ui.press({ key: 'unblock-analysis:PR_12' })
     await ui.press({ key: 'unblock-analysis:PR_12' })

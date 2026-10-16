@@ -129,7 +129,7 @@ export interface RunningAnalysis {
   kind: AnalysisKind
   /** The head commit it reads. */
   headSha: string
-  /** The subagent's id, which its `turn.complete` carries; absent when whoever started it gave none. */
+  /** The subagent's id, which its `turn.complete` carries; absent while the subagent is being started. */
   agentId?: string
 }
 

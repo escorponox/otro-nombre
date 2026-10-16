@@ -36,12 +36,14 @@ for (const surface of SURFACES) {
     await ui.unmount()
   })
 
-  test(`Review analysis starts a background subagent on the pull request's head commit and shows analysing… (${surface})`, async ($, on) => {
-    const { ui, engine } = await openReviewTab($, on, surface)
+  test(`Review analysis starts a background read-only subagent on the pull request's head commit and shows analysing… (${surface})`, async ($, on) => {
+    const { ui, engine, clock } = await openReviewTab($, on, surface)
+    engine.agents.wait = () => clock.sleep(1_000)
     expect(await analysisOf(ui, 'PR_41')).toBeUndefined()
 
     await ui.press({ key: 'review-analysis:PR_41' })
     expect(engine.spawns).toHaveLength(1)
+    expect(engine.spawns[0]?.subagentType).toBe('Explore')
     expect(engine.spawns[0]?.description).toBe('Review analysis of #41 acme/web')
     expect(engine.spawns[0]?.prompt).toContain('https://github.com/acme/web/pull/41')
     expect(engine.spawns[0]?.prompt).toContain(headShaOf(41))
@@ -52,7 +54,8 @@ for (const surface of SURFACES) {
   })
 
   test(`a second press while the analysis runs starts nothing (${surface})`, async ($, on) => {
-    const { ui, engine } = await openReviewTab($, on, surface)
+    const { ui, engine, clock } = await openReviewTab($, on, surface)
+    engine.agents.wait = () => clock.sleep(1_000)
 
     await ui.press({ key: 'review-analysis:PR_41' })
     await ui.press({ key: 'review-analysis:PR_41' })
@@ -62,7 +65,7 @@ for (const surface of SURFACES) {
   })
 
   test(`a refused subagent shows why on the refresh line and nothing runs (${surface})`, async ($, on) => {
-    const { ui, engine } = await openReviewTab($, on, surface)
+    const { ui, engine, clock } = await openReviewTab($, on, surface)
     engine.agents.deny = 'background agents are off'
 
     await ui.press({ key: 'review-analysis:PR_41' })
@@ -73,9 +76,23 @@ for (const surface of SURFACES) {
 
     // Nothing is left running: a press once the agent is allowed starts it.
     engine.agents.deny = undefined
+    engine.agents.wait = () => clock.sleep(1_000)
     await ui.press({ key: 'review-analysis:PR_41' })
     expect(engine.spawns).toHaveLength(2)
     expect(await analysisOf(ui, 'PR_41')).toContain('analysing…')
+    await ui.unmount()
+  })
+
+  test(`a subagent started with no id to follow leaves nothing running and says so on the refresh line (${surface})`, async ($, on) => {
+    const { ui, engine } = await openReviewTab($, on, surface)
+
+    // The kit's spawn, like a hook that answers without starting a subagent, hands back no agentId.
+    await ui.press({ key: 'review-analysis:PR_41' })
+    expect(await analysisOf(ui, 'PR_41')).toBeUndefined()
+    expect(await footer(ui)).toMatch(/^Couldn't follow the Review analysis of #41 acme\/web \(no subagent id\) · Updated \d\d:\d\d$/)
+
+    await ui.press({ key: 'review-analysis:PR_41' })
+    expect(engine.spawns).toHaveLength(2)
     await ui.unmount()
   })
 
@@ -91,7 +108,8 @@ for (const surface of SURFACES) {
   })
 
   test(`an analysis of an older commit is marked out of date and runs again on the new head (${surface})`, async ($, on) => {
-    const { ui, engine } = await openReviewTab($, on, surface, { [`acme/web#41@${OLD_SHA}`]: storedReview(OLD_SHA) })
+    const { ui, engine, clock } = await openReviewTab($, on, surface, { [`acme/web#41@${OLD_SHA}`]: storedReview(OLD_SHA) })
+    engine.agents.wait = () => clock.sleep(1_000)
 
     const drawn = await analysisOf(ui, 'PR_41')
     expect(drawn).toContain('Caches the session token.')

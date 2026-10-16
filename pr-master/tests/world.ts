@@ -67,14 +67,17 @@ export function world(on: On, { store: entries = {} }: { store?: Record<string, 
   })
   /**
    * Every subagent the mod started, as the Agent tool's input reaches this kit (`prompt`,
-   * `description`, `subagent_type`, `run_in_background`). `agents.deny` makes the next spawns refused.
-   * The kit hands the mod no `agentId` (see testing notes), so a spawn here never completes.
+   * `description`, `subagent_type`, `run_in_background`). `agents.deny` makes the next spawns refused;
+   * `agents.wait` is what a spawn waits for before it answers, e.g. `() => clock.sleep(1_000)` on the
+   * test's `mock.clock`. The kit hands the mod no `agentId` (see testing notes): to the mod, a spawn
+   * here starts no subagent it can follow.
    */
-  const spawns: { prompt: string; description: string }[] = []
-  const agents = { deny: undefined as string | undefined }
-  on('agent.spawn', ($, e) => {
-    const input = e as unknown as { prompt: string; description: string }
-    spawns.push({ prompt: input.prompt, description: input.description })
+  const spawns: { prompt: string; description: string; subagentType: string }[] = []
+  const agents = { deny: undefined as string | undefined, wait: undefined as (() => Promise<void>) | undefined }
+  on('agent.spawn', async ($, e) => {
+    const input = e as unknown as { prompt: string; description: string; subagent_type: string }
+    spawns.push({ prompt: input.prompt, description: input.description, subagentType: input.subagent_type })
+    await agents.wait?.()
     return agents.deny === undefined ? { model: 'inherit' } : { deny: agents.deny }
   })
   /** Every prompt the mod submitted into the conversation. */
