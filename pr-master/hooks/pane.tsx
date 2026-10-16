@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On } from 'claude-code'
 
-import type { Snapshot, Tab } from '../types'
+import type { ActionProgress, Snapshot, Tab } from '../types'
 import { clampOffset, offsetShowing, scrolledOffset } from './domain/list-window'
 import { TURN_COLOUR, itemRows, pullRequestItem, wrappedRows } from './items'
 import type { ItemHandlers } from './items'
@@ -19,6 +19,9 @@ const listOffset = atom({ plugin: 'pr-master', key: 'listOffset' } as const, 0)
 const focused = atom({ plugin: 'pr-master', key: 'focused' } as const, null as string | null)
 /** Written by `actions.ts`. */
 const actionProblem = atom({ plugin: 'pr-master', key: 'actionProblem' } as const, null as string | null)
+/** Written by `refresh.ts`, which runs the write actions. */
+const armed = atom({ plugin: 'pr-master', key: 'armed' } as const, null as { element: string; at: number } | null)
+const progress = atom({ plugin: 'pr-master', key: 'progress' } as const, {} as Record<string, ActionProgress>)
 
 /**
  * The body the pane was last drawn in. `ui.focus` carries no size, and drawing may not write
@@ -64,6 +67,8 @@ export function registerPane(on: On) {
     const offset = clampOffset(await read($, listOffset), items.length)
     const focusedId = await read($, focused)
     const footer = footerLine(shot, await read($, actionProblem))
+    const armedElement = (await read($, armed))?.element ?? null
+    const progressById = await read($, progress)
     lastBody = { rows: e.props.scroll.bodyRows, columns: e.props.bodyColumns }
 
     const header = (
@@ -133,7 +138,14 @@ export function registerPane(on: On) {
           {items.length === 0 ? (
             <Text dimColor>No pull requests here.</Text>
           ) : (
-            items.slice(offset).map(item => pullRequestItem({ Box, Text, Button }, item, ITEM_HANDLERS, item.id === focusedId))
+            items.slice(offset).map(item =>
+              pullRequestItem({ Box, Text, Button }, item, ITEM_HANDLERS, {
+                tab: shown,
+                isFocused: item.id === focusedId,
+                armed: armedElement,
+                progress: progressById[item.id],
+              }),
+            )
           )}
         </Box>
         <Box key="footer" flexShrink={0}>
@@ -167,12 +179,14 @@ function registerListScroll(on: On) {
   on('ui.focus', { requestId: PANE_ID }, async ($, e, next) => {
     const shot = await read($, snapshot)
     const isLegendShown = await read($, legend)
-    const items = listOf(shot, await read($, tab))
+    const shown = await read($, tab)
+    const items = listOf(shot, shown)
     const id = e.element?.slice(e.element.indexOf(':') + 1)
     const index = items.findIndex(item => item.id === id)
     await update($, focused, () => items[index]?.id ?? null)
     if (index >= 0) {
-      const heights = items.map(item => itemRows(item, lastBody.columns))
+      const progressById = await read($, progress)
+      const heights = items.map(item => itemRows(item, lastBody.columns, { tab: shown, progress: progressById[item.id] }))
       const rows = listRows(lastBody, isLegendShown, footerLine(shot, await read($, actionProblem)))
       await update($, listOffset, offset => offsetShowing(index, { offset: clampOffset(offset, items.length), heights, rows }))
     }
