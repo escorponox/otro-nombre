@@ -73,6 +73,23 @@ for (const surface of SURFACES) {
     await ui.unmount()
   })
 
+  test(`a write action fetches the lists anew even while a refresh is in flight (${surface})`, async ($, on) => {
+    const { ui, gh, clock } = await openThree($, on, surface)
+    // A refresh whose open lists are in and whose merged search still runs: it read #12 before the merge.
+    gh.mergedWait = () => clock.sleep(5_000)
+    await ui.press({ key: 'refresh' })
+
+    gh.searches[MY_PULL_REQUESTS_QUERY] = [pullRequestNode(13, { mergeStateStatus: 'BEHIND' })]
+    await ui.press({ key: 'merge:PR_12' })
+    await ui.press({ key: 'merge:PR_12' })
+    await clock.advance(10_000)
+    await clock.settle()
+
+    expect(mutations(gh.requests)).toHaveLength(1)
+    expect(await ui.find({ key: 'item:PR_12' })).toBeUndefined()
+    await ui.unmount()
+  })
+
   test(`a press, 3 s, then a press sends nothing and asks again (${surface})`, async ($, on) => {
     const { ui, gh, clock } = await openThree($, on, surface)
 

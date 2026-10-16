@@ -161,10 +161,25 @@ async function pollOnce($: EngineInterface, options: Options): Promise<void> {
 
 /** Fetches now, or joins the fetch this session already has in flight. */
 function refresh($: EngineInterface, options: Options): Promise<void> {
-  fetching ??= fetchIntoCache($, options).finally(() => {
-    fetching = undefined
+  return fetching ?? track(fetchIntoCache($, options))
+}
+
+/**
+ * Fetches anew once the fetch in flight, if any, is done: after a write action, whose effect a
+ * fetch that started before it cannot show.
+ */
+function refreshAnew($: EngineInterface, options: Options): Promise<void> {
+  const before = fetching ?? Promise.resolve()
+  return track(before.catch(() => undefined).then(() => fetchIntoCache($, options)))
+}
+
+/** Makes `fetch` the one in flight, joined by the refreshes asked for until it is done. */
+function track(fetch: Promise<void>): Promise<void> {
+  const tracked: Promise<void> = fetch.finally(() => {
+    if (fetching === tracked) fetching = undefined
   })
-  return fetching
+  fetching = tracked
+  return tracked
 }
 
 /**
@@ -449,7 +464,7 @@ async function runWriteAction($: EngineInterface, options: Options, kind: string
   } catch (error) {
     await show({ kind, phase: 'failed', problem: error instanceof Error ? error.message : String(error) })
   }
-  await refresh($, options)
+  await refreshAnew($, options)
 }
 
 async function disarm($: EngineInterface): Promise<void> {
