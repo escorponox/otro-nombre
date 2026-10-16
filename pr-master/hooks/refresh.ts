@@ -4,6 +4,8 @@ import type { EngineInterface, HttpResponse, On, Timer } from 'claude-code'
 import type { MergedPullRequestItem, PullRequestItem, RefreshProblem, Snapshot, SnapshotCache, TeamSwitch } from '../types'
 import { toItem } from './domain/item'
 import { isDue } from './domain/polling'
+import { hangsOnAncestry, promotionOf, regionFileOf, regionPromotion, releaseOfVersion, stableVersionOf } from './domain/promotion'
+import type { Environment, Promotion, RegionPromotion, RegionVersion } from './domain/promotion'
 import type { OpenPullRequest } from './domain/pull-request'
 import { readiness } from './domain/readiness'
 import { reviewState } from './domain/review-state'
@@ -13,6 +15,8 @@ import type { MergedPullRequest, Release } from './domain/shipment'
 import { statusRow } from './domain/status-row'
 import { visibleOnly } from './domain/visibility'
 import { GH_TOKEN_COMMANDS, NoToken, graphqlData, graphqlRequest, restRequest } from './github/client'
+import { CIRCLECI_CONFIG, appFoldersOf, appTreesOf, appTreesQuery, blobTextsOf, blobsQuery, codeSearchPath, imageNamesOf } from './github/deployments'
+import type { AppTreesData, BlobsData, CircleCiConfigData, DeploymentApp, TreeEntry } from './github/deployments'
 import { MERGED_PULL_REQUESTS_SEARCH, comparePath, comparisonStatusOf, mergedPullRequestsOf, mergedPullRequestsSearch } from './github/merged'
 import type { MergedPullRequestsSearchData } from './github/merged'
 import { MY_PULL_REQUESTS, OPEN_PULL_REQUESTS_SEARCH, openPullRequestsOf } from './github/open-pull-requests'
@@ -36,6 +40,16 @@ const TEAMS_OFF = 'teamsOff'
 
 /** The key prefix of a team switch Button in the pane. */
 const TEAM_SWITCH = 'team:'
+
+/** The `$.store` key of each repo's discovered app folders (see `DeploymentsCache`). */
+const DEPLOYMENTS_KEY = 'deployments'
+/** How long a repo's discovery is kept before it is made again. */
+const REDISCOVER_MS = 86_400_000
+/** The `$.store` key of the version each region file's blob promotes, by blob id; null when it has none. */
+const STABLE_VERSIONS_KEY = 'stable-versions'
+
+/** Each repo's (`owner/name`) app folders in the deployments repos, and when they were discovered. */
+type DeploymentsCache = Record<string, { apps: DeploymentApp[]; checkedAt: number }>
 
 // The engine's scan only accepts atoms declared in the file that reads and writes them.
 const snapshot = atom({ plugin: 'pr-master', key: 'snapshot' } as const, EMPTY_SNAPSHOT)
@@ -164,22 +178,150 @@ async function fetchMerged($: EngineInterface, options: Options): Promise<Merged
   if (q === null) return []
   const data = await graphql<MergedPullRequestsSearchData>($, options, MERGED_PULL_REQUESTS_SEARCH, { q })
   const prs = visibleOnly(mergedPullRequestsOf(data), options)
-  // Promotions to staging and production (ticket 09) are read here too, beside the release.
-  return Promise.all(prs.map(async pr => toMergedItem(pr, await containingRelease($, options, pr))))
+  const regionsOf = await promotedRegions($, options, [...new Set(prs.map(pr => pr.repository))])
+  return Promise.all(prs.map(async pr => {
+    const ancestry = new Map<string, boolean | null>()
+    const release = await containingRelease($, options, pr, ancestry)
+    const promotion = await regionsPromotion($, options, pr, regionsOf(pr.repository), ancestry)
+    return toMergedItem(pr, release, promotion)
+  }))
 }
 
 /**
  * The earliest release whose tag contains the merge commit, checked by commit ancestry one
  * candidate at a time, earliest first; null when none does or the ship status does not hang on one.
+ * `ancestry` keeps the answers for the pull request's Promotion.
  */
-async function containingRelease($: EngineInterface, options: Options, pr: MergedPullRequest): Promise<Release | null> {
+async function containingRelease(
+  $: EngineInterface,
+  options: Options,
+  pr: MergedPullRequest,
+  ancestry: Map<string, boolean | null>,
+): Promise<Release | null> {
   if (!awaitsRelease(pr)) return null
   for (const release of releaseCandidates(pr)) {
-    const response = await rest($, options, comparePath(pr.repository, release.tag, pr.mergeCommit.oid))
-    const status = comparisonStatusOf(response)
-    if (status && isContained(status)) return release
+    if (await containsMergeCommit($, options, pr, release.tag, ancestry)) return release
   }
   return null
+}
+
+/**
+ * Whether the release tagged `tag` contains the merge commit, by GitHub's compare; null when it
+ * cannot be told (no merge commit, or GitHub knows no such tag). Each tag is compared once per
+ * pull request and refresh: `ancestry` keeps the answers.
+ */
+async function containsMergeCommit(
+  $: EngineInterface,
+  options: Options,
+  pr: MergedPullRequest,
+  tag: string,
+  ancestry: Map<string, boolean | null>,
+): Promise<boolean | null> {
+  if (!pr.mergeCommit) return null
+  if (!ancestry.has(tag)) {
+    const status = comparisonStatusOf(await rest($, options, comparePath(pr.repository, tag, pr.mergeCommit.oid)))
+    ancestry.set(tag, status === null ? null : isContained(status))
+  }
+  return ancestry.get(tag) ?? null
+}
+
+/**
+ * A merged pull request's Promotion to staging and production from the version each region runs
+ * (`regions`, none without a deployments setup), one region at a time so a tag is compared once.
+ */
+async function regionsPromotion(
+  $: EngineInterface,
+  options: Options,
+  pr: MergedPullRequest,
+  regions: RegionVersion[],
+  ancestry: Map<string, boolean | null>,
+): Promise<Promotion> {
+  const promotions: { environment: Environment; promotion: RegionPromotion }[] = []
+  for (const region of regions) {
+    const release = releaseOfVersion(pr.releases, region.version)
+    const contains = hangsOnAncestry(pr.mergedAt, release) ? await containsMergeCommit($, options, pr, release.tag, ancestry) : null
+    promotions.push({ environment: region.environment, promotion: regionPromotion(pr.mergedAt, release, contains) })
+  }
+  return promotionOf(promotions)
+}
+
+/**
+ * The regions each repo is deployed to, with the version each runs: the repos' apps discovered
+ * once (see `deploymentApps`), then every app folder read at once (see `regionVersions`).
+ */
+async function promotedRegions($: EngineInterface, options: Options, repositories: string[]): Promise<(repository: string) => RegionVersion[]> {
+  const appsOf = new Map<string, DeploymentApp[]>()
+  // One repo at a time: code search allows few requests a minute.
+  for (const repository of repositories) appsOf.set(repository, await deploymentApps($, options, repository))
+  const apps = [...appsOf.values()].flat()
+  const versions = await regionVersions($, options, apps)
+  return repository => (appsOf.get(repository) ?? []).flatMap(app => versions[apps.indexOf(app)] ?? [])
+}
+
+/**
+ * A repo's app folders in the deployments repos of its org, discovered once and kept in the
+ * store shared by the person's sessions; discovered again after a day, so a setup made since shows.
+ */
+async function deploymentApps($: EngineInterface, options: Options, repository: string): Promise<DeploymentApp[]> {
+  const now = await $.clock.now()
+  const known = (await $.store.get(DEPLOYMENTS_KEY)) as DeploymentsCache | undefined
+  const cached = known?.[repository]
+  if (cached && now - cached.checkedAt < REDISCOVER_MS) return cached.apps
+  const apps = await discoverApps($, options, repository)
+  const latest = (await $.store.get(DEPLOYMENTS_KEY)) as DeploymentsCache | undefined
+  await $.store.set(DEPLOYMENTS_KEY, { ...latest, [repository]: { apps, checkedAt: now } })
+  return apps
+}
+
+/**
+ * A repo's app folders (ADR 0001): its images, named as `repository:` in its CircleCI config; the
+ * folders of the `values.yaml` files naming one in its org; of those, the ones holding a `kargo` entry.
+ */
+async function discoverApps($: EngineInterface, options: Options, repository: string): Promise<DeploymentApp[]> {
+  const [owner = '', name = ''] = repository.split('/')
+  const images = imageNamesOf(await graphql<CircleCiConfigData>($, options, CIRCLECI_CONFIG, { owner, name }))
+  const candidates = new Map<string, DeploymentApp>()
+  for (const image of images) {
+    for (const app of appFoldersOf(await rest($, options, codeSearchPath(image, owner)))) {
+      candidates.set(`${app.repository}/${app.path}`, app)
+    }
+  }
+  const folders = [...candidates.values()]
+  if (folders.length === 0) return []
+  const trees = await appTrees($, options, folders)
+  return folders.filter((_, index) => trees[index]?.some(entry => entry.name === 'kargo'))
+}
+
+/** Each app folder's entries, read in one query. */
+async function appTrees($: EngineInterface, options: Options, apps: DeploymentApp[]): Promise<TreeEntry[][]> {
+  const { query, variables } = appTreesQuery(apps)
+  return appTreesOf(await graphql<AppTreesData>($, options, query, variables), apps.length)
+}
+
+/**
+ * Each app's regions with the version each runs: one tree query for every app folder, and the
+ * region files read only when their blob is new; the store keeps each blob's version, holding
+ * only the blobs of this read so it never outgrows the deployments repos.
+ */
+async function regionVersions($: EngineInterface, options: Options, apps: DeploymentApp[]): Promise<RegionVersion[][]> {
+  if (apps.length === 0) return []
+  const trees = await appTrees($, options, apps)
+  const files = apps.map((app, index) => (trees[index] ?? []).flatMap(entry => {
+    const region = regionFileOf(entry.name)
+    return region ? [{ ...region, repository: app.repository, oid: entry.oid }] : []
+  }))
+  const known = ((await $.store.get(STABLE_VERSIONS_KEY)) ?? {}) as Record<string, string | null>
+  const unread = [...new Map(files.flat().filter(file => !(file.oid in known)).map(file => [file.oid, file])).values()]
+  const read: Record<string, string | null> = {}
+  if (unread.length > 0) {
+    const { query, variables } = blobsQuery(unread)
+    const texts = blobTextsOf(await graphql<BlobsData>($, options, query, variables), unread.length)
+    unread.forEach((file, index) => { read[file.oid] = stableVersionOf(texts[index] ?? '') })
+  }
+  const everyVersion = { ...known, ...read }
+  const versions = Object.fromEntries(files.flat().map(file => [file.oid, everyVersion[file.oid] ?? null]))
+  if (unread.length > 0 || Object.keys(known).length !== Object.keys(versions).length) await $.store.set(STABLE_VERSIONS_KEY, versions)
+  return files.map(list => list.map(file => ({ environment: file.environment, version: versions[file.oid] ?? null })))
 }
 
 /** Draws `cache`'s snapshot in the pane and its counts in the status row. */

@@ -119,6 +119,13 @@ export function github(on: On) {
     whileInFlight: undefined as (() => void) | undefined,
     /** The teams of the viewer's organisations the viewer belongs to, as member or as admin. */
     teams: [] as FakeTeam[],
+    /**
+     * The files of repositories on their default branch, `files['owner/name']['path/in/repo'] = text`:
+     * a repo's `.circleci/config.yml` and the deployments repos. Code search, trees and blobs read them.
+     */
+    files: {} as Record<string, Record<string, string>>,
+    /** The requests of the Promotions: the CircleCI config, code searches, trees and blobs, in order. */
+    deploymentRequests: [] as GitHubRequest[],
   }
   on('process.run', ($, e) => {
     fake.argvs.push([...e.argv])
@@ -148,6 +155,11 @@ export function github(on: On) {
       headers: { ...e.init?.headers },
       query: body.query ?? '',
       variables: body.variables ?? {},
+    }
+    const deployments = deploymentsAnswer(fake.files, e.url, request.query, request.variables)
+    if (deployments) {
+      fake.deploymentRequests.push(request)
+      return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify(deployments) } }
     }
     if (compare || isMergedSearch) {
       fake.mergedRequests.push(request)
@@ -194,6 +206,64 @@ export function github(on: On) {
   })
   return fake
 }
+
+/**
+ * GitHub's answer to a request of the Promotions, read from `files`; undefined when the request is
+ * none of them: a repo's CircleCI config, a code search for `values.yaml` files naming an image in
+ * an org, and the aliased tree and blob reads (`a0: repository(owner: $o0, name: $n0) { object(expression: $p0) …`).
+ */
+function deploymentsAnswer(files: Record<string, Record<string, string>>, url: string, query: string, variables: Record<string, unknown>) {
+  if (url.startsWith('https://api.github.com/search/code?')) {
+    const q = decodeURIComponent(/[?&]q=([^&]*)/.exec(url)?.[1] ?? '')
+    const [, image = '', org = ''] = /^"([^"]+)" org:(\S+) filename:values\.yaml$/.exec(q) ?? []
+    const items = Object.entries(files)
+      .filter(([repo]) => repo.startsWith(`${org}/`))
+      .flatMap(([repo, tree]) => Object.entries(tree)
+        .filter(([path, text]) => basename(path) === 'values.yaml' && text.includes(image))
+        .map(([path]) => ({ name: 'values.yaml', path, repository: { full_name: repo } })))
+    return { total_count: items.length, items }
+  }
+  if (query.includes('query CircleCiConfig')) {
+    const text = files[`${variables.owner}/${variables.name}`]?.['.circleci/config.yml']
+    return { data: { repository: { object: text === undefined ? null : { text } } } }
+  }
+  if (!query.includes('query AppTrees') && !query.includes('query StableVersions')) return undefined
+  const aliases = [...query.matchAll(/(\w+): repository\(owner: \$(\w+), name: \$(\w+)\) \{ object\((expression|oid): \$(\w+)\)/g)]
+  return {
+    data: Object.fromEntries(aliases.map(([, alias = '', owner = '', name = '', kind, target = '']) => {
+      const tree = files[`${variables[owner]}/${variables[name]}`] ?? {}
+      const object = kind === 'expression'
+        ? treeObject(tree, String(variables[target]).replace(/^HEAD:/, ''))
+        : blobObject(tree, String(variables[target]))
+      return [alias, { object }]
+    })),
+  }
+}
+
+/** A folder's entries, each with its object id; null when no file lies under it. */
+function treeObject(tree: Record<string, string>, folder: string) {
+  const entries = new Map<string, string>()
+  for (const [path, text] of Object.entries(tree)) {
+    if (!path.startsWith(`${folder}/`)) continue
+    const [name = '', ...deeper] = path.slice(folder.length + 1).split('/')
+    entries.set(name, deeper.length > 0 ? `tree-${folder}/${name}` : blobOid(text))
+  }
+  return entries.size === 0 ? null : { entries: [...entries].map(([name, oid]) => ({ name, oid })) }
+}
+
+function blobObject(tree: Record<string, string>, oid: string) {
+  const text = Object.values(tree).find(each => blobOid(each) === oid)
+  return text === undefined ? null : { text }
+}
+
+/** A blob's object id: a hash of its text, so a changed file gets a new one. */
+export function blobOid(text: string): string {
+  let hash = 7
+  for (const char of text) hash = (hash * 31 + char.charCodeAt(0)) >>> 0
+  return `blob-${hash.toString(16)}`
+}
+
+const basename = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 
 /** The requests other than the Review request ones (the viewer's teams and their searches), in order. */
 export function exceptReviewRequests(requests: GitHubRequest[]): GitHubRequest[] {

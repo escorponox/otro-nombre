@@ -14,9 +14,17 @@ export type RegionPromotion = 'carrying' | 'awaiting' | 'unknown'
  */
 export function regionPromotion(mergedAt: string, release: Release | null, contains: boolean | null): RegionPromotion {
   if (!release) return 'unknown'
-  if (Date.parse(release.createdAt) < Date.parse(mergedAt)) return 'awaiting'
+  if (!hangsOnAncestry(mergedAt, release)) return 'awaiting'
   if (contains === null) return 'unknown'
   return contains ? 'carrying' : 'awaiting'
+}
+
+/**
+ * Whether the region's Promotion hangs on ancestry: its release was cut at or after the merge.
+ * Only then is it worth asking GitHub whether that release's tag contains the merge commit.
+ */
+export function hangsOnAncestry(mergedAt: string, release: Release | null): release is Release {
+  return release !== null && Date.parse(release.createdAt) >= Date.parse(mergedAt)
 }
 
 /**
@@ -33,8 +41,27 @@ export function environmentStep(regions: RegionPromotion[]): ShipmentStep {
 /** The environments a Merged pull request is promoted to. */
 export type Environment = 'stg' | 'prod'
 
+/** Staging's and production's Shipment steps. */
+export type Promotion = Record<Environment, ShipmentStep>
+
+/** A repo with no deployments setup: both environments unknown. */
+export const NO_PROMOTION: Promotion = { stg: 'unknown', prod: 'unknown' }
+
+/** Staging's and production's Shipment steps from every region's Promotion (see `environmentStep`). */
+export function promotionOf(regions: { environment: Environment; promotion: RegionPromotion }[]): Promotion {
+  const stepOf = (environment: Environment) =>
+    environmentStep(regions.filter(region => region.environment === environment).map(region => region.promotion))
+  return { stg: stepOf('stg'), prod: stepOf('prod') }
+}
+
 /** The environment codes of the deployments repos' region files: staging and production, and their customer twins. */
 const ENVIRONMENT_CODES: Record<string, Environment> = { stg: 'stg', cst: 'stg', prd: 'prod', cpr: 'prod' }
+
+/** A region of an environment and the version it runs; null when its file promotes none. */
+export interface RegionVersion {
+  environment: Environment
+  version: string | null
+}
 
 /** A region file of an app folder: `values.<env>.<region>.yaml`. */
 export interface RegionFile {
