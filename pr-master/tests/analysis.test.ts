@@ -61,3 +61,31 @@ test('continuing in conversation hands the analysis over with the pull request a
   expect(prompt).toContain(SHA.slice(0, 7))
   expect(prompt).toContain('It caches.')
 })
+
+const myPullRequest: PullRequestItem = {
+  ...item,
+  id: 'PR_12',
+  number: 12,
+  repo: 'acme/api',
+  url: 'https://github.com/acme/api/pull/12',
+  author: 'coves',
+  label: 'Checks failing',
+}
+
+test('the Unblock analysis prompt names the pull request, its head commit, its Readiness, how to fetch its blockers and what to answer, and forbids changing anything', () => {
+  const prompt = analysisPrompt('unblock', myPullRequest)
+  expect(prompt).toContain('https://github.com/acme/api/pull/12')
+  expect(prompt).toContain(SHA)
+  expect(prompt).toContain('Readiness: Checks failing')
+  expect(prompt).toContain('gh pr checks https://github.com/acme/api/pull/12')
+  expect(prompt).toContain('reviewThreads')
+  expect(prompt).toContain('quill-reviewer')
+  expect(prompt).toContain('Why it is not ready')
+  expect(prompt).toContain('How to fix it')
+  expect(prompt).toContain('Do not change anything')
+  expect(prompt).not.toContain('Its branch is behind its base branch')
+})
+
+test('the Unblock analysis prompt names being behind the base branch as a blocker when it is', () => {
+  expect(analysisPrompt('unblock', { ...myPullRequest, isBehind: true })).toContain('Its branch is behind its base branch')
+})

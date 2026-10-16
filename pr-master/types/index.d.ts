@@ -105,8 +105,8 @@ export interface SnapshotCache {
   failures: number
 }
 
-/** The analyses Claude runs on demand: the Review analysis of a Review request. */
-export type AnalysisKind = 'review'
+/** The analyses Claude runs on demand: the Review analysis of a Review request, the Unblock analysis of a My pull request. */
+export type AnalysisKind = 'review' | 'unblock'
 
 /**
  * An analysis's result, kept in `$.store` under `owner/repo#number@headSha` (see `analysisKey`),

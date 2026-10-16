@@ -8,7 +8,7 @@ interface Rung {
 }
 
 /** The Quill reviewer's login as GitHub's GraphQL API gives it: a GitHub App, without REST's `[bot]` suffix. */
-const QUILL_REVIEWER = 'quill-reviewer'
+export const QUILL_REVIEWER = 'quill-reviewer'
 
 const isBlocked = (pr: OpenPullRequest) => pr.mergeState === 'BLOCKED'
 const hasQuillThreads = (pr: OpenPullRequest) => isBlocked(pr) && pr.unresolvedThreadAuthors.includes(QUILL_REVIEWER)

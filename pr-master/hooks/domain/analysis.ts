@@ -1,10 +1,11 @@
 import type { Analysis, AnalysisKind, PullRequestItem } from '../../types'
+import { QUILL_REVIEWER } from './readiness'
 
 /** What each analysis is called, on its action and its result. */
-export const ANALYSIS_NAME: Record<AnalysisKind, string> = { review: 'Review analysis' }
+export const ANALYSIS_NAME: Record<AnalysisKind, string> = { review: 'Review analysis', unblock: 'Unblock analysis' }
 
 /** The action that runs each analysis: its Button is keyed `<action>:<item id>`. */
-export const ANALYSIS_ACTION: Record<AnalysisKind, string> = { review: 'review-analysis' }
+export const ANALYSIS_ACTION: Record<AnalysisKind, string> = { review: 'review-analysis', unblock: 'unblock-analysis' }
 
 /** The analysis an action runs; undefined for an action that runs none. */
 export function analysisOfAction(action: string): AnalysisKind | undefined {
@@ -55,6 +56,8 @@ export function analysisPrompt(kind: AnalysisKind, item: PullRequestItem): strin
   switch (kind) {
     case 'review':
       return reviewAnalysisPrompt(item)
+    case 'unblock':
+      return unblockAnalysisPrompt(item)
   }
 }
 
@@ -79,6 +82,30 @@ function reviewAnalysisPrompt(item: PullRequestItem): string {
     'What it does: the change in a few lines.',
     'Risks: what could break or regress, security or data concerns, missing tests.',
     'What to look at: the files and lines a reviewer should read first, and why.',
+    ANSWER_SHAPE,
+  ].join('\n\n')
+}
+
+/**
+ * The panel knows only the pull request's Readiness (the first blocker of its ladder) and whether
+ * it is behind; the subagent fetches the rest of the blockers itself with `gh`.
+ */
+function unblockAnalysisPrompt(item: PullRequestItem): string {
+  const known = [`Its Readiness: ${item.label}.`]
+  if (item.isBehind) known.push('Its branch is behind its base branch.')
+  return [
+    'Analyse this pull request for its author, who wants to merge it.',
+    pullRequestBrief(item),
+    known.join(' '),
+    [
+      'The Readiness names only the first blocker found; check them all:',
+      `- Failing checks: \`gh pr checks ${item.url}\`, then \`gh run view <run id> --log-failed\` for each failing run.`,
+      `- Merge conflicts, behind its base branch, changes requested: \`gh pr view ${item.url} --json mergeable,mergeStateStatus,reviewDecision,reviews,baseRefName\`.`,
+      `- Unresolved review threads, and which of them are Quill's (author \`${QUILL_REVIEWER}\`): \`gh api graphql\` on the pull request's \`reviewThreads\` (\`isResolved\`, \`path\`, \`line\`, and each comment's author login and body).`,
+    ].join('\n'),
+    'Answer under two headings:',
+    'Why it is not ready: each blocker, with the failing check, conflicting files or thread it comes from.',
+    'How to fix it: the steps that clear each blocker, in order.',
     ANSWER_SHAPE,
   ].join('\n\n')
 }
