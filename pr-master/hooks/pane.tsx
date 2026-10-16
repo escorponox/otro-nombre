@@ -3,7 +3,7 @@ import type { EngineInterface, On } from 'claude-code'
 
 import type { ActionProgress, Analysis, MergedPullRequestItem, PullRequestItem, RunningAnalysis, Snapshot, Tab, TeamSwitch } from '../types'
 import { analysisRef } from './domain/analysis'
-import { splitKey } from './domain/element-key'
+import { TEAM_SWITCH, splitKey } from './domain/element-key'
 import { clampOffset, offsetShowing, scrolledOffset } from './domain/list-window'
 import { TURN_COLOUR, itemRows, pullRequestItem, wrappedRows } from './items'
 import type { ItemAnalysis } from './items'
@@ -135,7 +135,7 @@ export function registerPane(on: On) {
       <Box key="teams" flexDirection="row" flexWrap="wrap">
         {shot.teams.flatMap((team, index) => [
           ...(index > 0 ? [<Text key={`teams:space:${team.slug}`}> </Text>] : []),
-          <Button key={`team:${team.slug}`} variant={team.isOn ? 'primary' : undefined} onPress={() => undefined}>
+          <Button key={`${TEAM_SWITCH}:${team.slug}`} variant={team.isOn ? 'primary' : undefined} onPress={() => undefined}>
             {teamLabel(team)}
           </Button>,
         ])}

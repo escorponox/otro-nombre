@@ -1,17 +1,45 @@
 import type { HttpResponse } from 'claude-code'
 
+import { regionFileOf } from '../domain/promotion'
+import type { RegionFile, RegionVersion } from '../domain/promotion'
 import { GitHubError } from './client'
 
 /**
  * The deployments repo lookup's requests and answers as plain data (ADR 0001): a repo's images,
  * named as `repository:` in its CircleCI config; the app folders of the org's deployments repos
  * whose `values.yaml` names one; and those folders' entries and files.
+ *
+ * "Deployments repo" names the org's GitOps repo (e.g. `acme/apps-deployments`) into which Kargo
+ * commits each region's promoted version, as ADR 0001 calls it; `DeploymentApp` is an app folder
+ * of it. It is not the Shipment's vocabulary: what the panel shows is a Promotion (GLOSSARY).
  */
 
 /** An app folder of a deployments repo: `path` in `repository` (`owner/name`). */
 export interface DeploymentApp {
   repository: string
   path: string
+}
+
+/** How long a repo's discovery is kept before it is made again, so a setup made since shows. */
+const REDISCOVER_MS = 86_400_000
+
+/** Each repo's (`owner/name`) app folders in the deployments repos, and when they were discovered. */
+export type DiscoveredApps = Record<string, { apps: DeploymentApp[]; checkedAt: number }>
+
+/** A repo's app folders as `discovered` holds them at `now`; undefined when they are to be discovered (again). */
+export function freshApps(discovered: DiscoveredApps | undefined, repository: string, now: number): DeploymentApp[] | undefined {
+  const cached = discovered?.[repository]
+  return cached && now - cached.checkedAt < REDISCOVER_MS ? cached.apps : undefined
+}
+
+/** The app folders several code searches found, each folder once. */
+export function uniqueApps(found: DeploymentApp[][]): DeploymentApp[] {
+  return [...new Map(found.flat().map(app => [`${app.repository}/${app.path}`, app])).values()]
+}
+
+/** The app folders on Kargo: the ones holding a `kargo` entry, `trees[i]` being `folders[i]`'s entries. */
+export function kargoApps(folders: DeploymentApp[], trees: TreeEntry[][]): DeploymentApp[] {
+  return folders.filter((_, index) => trees[index]?.some(entry => entry.name === 'kargo'))
 }
 
 /** An entry of an app folder, with its git object id. */
@@ -107,4 +135,40 @@ export type BlobsData = Record<string, { object: { text: string | null } | null 
 /** Each blob's text, in the order asked; empty for a blob GitHub no longer has. */
 export function blobTextsOf(data: BlobsData, count: number): string[] {
   return Array.from({ length: count }, (_, index) => data[`a${index}`]?.object?.text ?? '')
+}
+
+/** A region file of an app folder, with its repository and blob id. */
+export interface RegionBlob extends RegionFile {
+  repository: string
+  oid: string
+}
+
+/** The version each region file's blob promotes, by blob id; null when it promotes none. */
+export type StableVersions = Record<string, string | null>
+
+/** Each app's region files, `trees[i]` being `apps[i]`'s entries. */
+export function regionBlobsOf(apps: DeploymentApp[], trees: TreeEntry[][]): RegionBlob[][] {
+  return apps.map((app, index) => (trees[index] ?? []).flatMap(entry => {
+    const region = regionFileOf(entry.name)
+    return region ? [{ ...region, repository: app.repository, oid: entry.oid }] : []
+  }))
+}
+
+/** The region files whose blob's version is not `known` yet, each blob once: the ones to read. */
+export function unreadBlobs(blobs: RegionBlob[][], known: StableVersions): RegionBlob[] {
+  return [...new Map(blobs.flat().filter(blob => !(blob.oid in known)).map(blob => [blob.oid, blob])).values()]
+}
+
+/**
+ * The versions of this read's blobs, `known` before or just `read`: only these are kept, so the
+ * record never outgrows the deployments repos.
+ */
+export function versionsOf(blobs: RegionBlob[][], known: StableVersions, read: StableVersions): StableVersions {
+  const every = { ...known, ...read }
+  return Object.fromEntries(blobs.flat().map(blob => [blob.oid, every[blob.oid] ?? null]))
+}
+
+/** Each app's regions with the version each runs. */
+export function regionVersionsOf(blobs: RegionBlob[][], versions: StableVersions): RegionVersion[][] {
+  return blobs.map(list => list.map(blob => ({ environment: blob.environment, version: versions[blob.oid] ?? null })))
 }

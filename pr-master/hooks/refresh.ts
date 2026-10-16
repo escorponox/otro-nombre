@@ -15,10 +15,10 @@ import type { KeptAncestry } from './domain/ancestry'
 import { unlistedAnalysisKeys } from './domain/analysis'
 import { ARM_MS, pressOf } from './domain/confirmation'
 import { toItem } from './domain/item'
-import { splitKey } from './domain/element-key'
+import { TEAM_SWITCH, splitKey } from './domain/element-key'
 import { messageOf } from './domain/format'
 import { isDue } from './domain/polling'
-import { ancestryTag, promotionOf, regionFileOf, regionPromotion, stableVersionOf } from './domain/promotion'
+import { ancestryTag, promotionOf, regionPromotion, stableVersionOf } from './domain/promotion'
 import type { Environment, Promotion, RegionPromotion, RegionVersion } from './domain/promotion'
 import type { OpenPullRequest } from './domain/pull-request'
 import { readiness } from './domain/readiness'
@@ -29,8 +29,24 @@ import type { MergedPullRequest, Release } from './domain/shipment'
 import { statusRow } from './domain/status-row'
 import { visibleOnly } from './domain/visibility'
 import { GH_TOKEN_COMMANDS, NoToken, graphqlData, graphqlRequest, restRequest } from './github/client'
-import { CIRCLECI_CONFIG, appFoldersOf, appTreesOf, appTreesQuery, blobTextsOf, blobsQuery, codeSearchPath, imageNamesOf } from './github/deployments'
-import type { AppTreesData, BlobsData, CircleCiConfigData, DeploymentApp, TreeEntry } from './github/deployments'
+import {
+  CIRCLECI_CONFIG,
+  appFoldersOf,
+  appTreesOf,
+  appTreesQuery,
+  blobTextsOf,
+  blobsQuery,
+  codeSearchPath,
+  freshApps,
+  imageNamesOf,
+  kargoApps,
+  regionBlobsOf,
+  regionVersionsOf,
+  uniqueApps,
+  unreadBlobs,
+  versionsOf,
+} from './github/deployments'
+import type { AppTreesData, BlobsData, CircleCiConfigData, DeploymentApp, DiscoveredApps, StableVersions, TreeEntry } from './github/deployments'
 import { MERGED_PULL_REQUESTS_SEARCH, comparePath, comparisonStatusOf, mergedPullRequestsOf, mergedPullRequestsSearch } from './github/merged'
 import type { MergedPullRequestsSearchData } from './github/merged'
 import { MY_PULL_REQUESTS, OPEN_PULL_REQUESTS_SEARCH, openPullRequestsOf } from './github/open-pull-requests'
@@ -54,20 +70,15 @@ const POLL_TICK_MS = 15_000
 /** The `$.store` key of the teams the person switched off (`org/team` list). */
 const TEAMS_OFF = 'teamsOff'
 
-/** The key prefix of a team switch Button in the pane. */
-const TEAM_SWITCH = 'team:'
-
-/** The `$.store` key of each repo's discovered app folders (see `DeploymentsCache`). */
+/**
+ * The `$.store` key of each repo's discovered app folders in the deployments repos, the org's
+ * GitOps repos (see `DiscoveredApps` and `github/deployments.ts`).
+ */
 const DEPLOYMENTS_KEY = 'deployments'
-/** How long a repo's discovery is kept before it is made again. */
-const REDISCOVER_MS = 86_400_000
-/** The `$.store` key of the version each region file's blob promotes, by blob id; null when it has none. */
+/** The `$.store` key of the version each region file's blob promotes (see `StableVersions`). */
 const STABLE_VERSIONS_KEY = 'stable-versions'
 /** The `$.store` key of the compare answers GitHub could tell (see `KeptAncestry`). */
 const ANCESTRY_KEY = 'ancestry'
-
-/** Each repo's (`owner/name`) app folders in the deployments repos, and when they were discovered. */
-type DeploymentsCache = Record<string, { apps: DeploymentApp[]; checkedAt: number }>
 
 // The engine's scan only accepts atoms declared in the file that reads and writes them.
 const snapshot = atom({ plugin: 'pr-master', key: 'snapshot' } as const, EMPTY_SNAPSHOT)
@@ -127,10 +138,10 @@ export function registerRefresh(on: On, options: Options) {
   // The Review tab's team switches, keyed `team:<org/team>`, and the write actions on a pull
   // request, keyed `<kind>:<item id>` (see `pressWriteAction`).
   on('ui.press', { plugin: 'pr-master' }, async ($, e, next) => {
-    if (e.element.startsWith(TEAM_SWITCH)) {
-      await switchTeam($, options, e.element.slice(TEAM_SWITCH.length))
+    const [kind, id] = splitKey(e.element)
+    if (kind === TEAM_SWITCH) {
+      await switchTeam($, options, id)
     } else {
-      const [kind, id] = splitKey(e.element)
       const item = findOpenItem(await read($, snapshot), id)
       if (item && isWriteAction(kind)) await pressWriteAction($, options, e.element, kind, item, writeRequestOf(kind, item))
     }
@@ -348,11 +359,10 @@ async function promotedRegions($: EngineInterface, options: Options, repositorie
  */
 async function deploymentApps($: EngineInterface, options: Options, repository: string): Promise<DeploymentApp[]> {
   const now = await $.clock.now()
-  const known = (await $.store.get(DEPLOYMENTS_KEY)) as DeploymentsCache | undefined
-  const cached = known?.[repository]
-  if (cached && now - cached.checkedAt < REDISCOVER_MS) return cached.apps
+  const known = freshApps((await $.store.get(DEPLOYMENTS_KEY)) as DiscoveredApps | undefined, repository, now)
+  if (known) return known
   const apps = await discoverApps($, options, repository)
-  const latest = (await $.store.get(DEPLOYMENTS_KEY)) as DeploymentsCache | undefined
+  const latest = (await $.store.get(DEPLOYMENTS_KEY)) as DiscoveredApps | undefined
   await $.store.set(DEPLOYMENTS_KEY, { ...latest, [repository]: { apps, checkedAt: now } })
   return apps
 }
@@ -364,16 +374,11 @@ async function deploymentApps($: EngineInterface, options: Options, repository: 
 async function discoverApps($: EngineInterface, options: Options, repository: string): Promise<DeploymentApp[]> {
   const [owner = '', name = ''] = repository.split('/')
   const images = imageNamesOf(await graphql<CircleCiConfigData>($, options, CIRCLECI_CONFIG, { owner, name }))
-  const candidates = new Map<string, DeploymentApp>()
-  for (const image of images) {
-    for (const app of appFoldersOf(await rest($, options, codeSearchPath(image, owner)))) {
-      candidates.set(`${app.repository}/${app.path}`, app)
-    }
-  }
-  const folders = [...candidates.values()]
+  const found: DeploymentApp[][] = []
+  for (const image of images) found.push(appFoldersOf(await rest($, options, codeSearchPath(image, owner))))
+  const folders = uniqueApps(found)
   if (folders.length === 0) return []
-  const trees = await appTrees($, options, folders)
-  return folders.filter((_, index) => trees[index]?.some(entry => entry.name === 'kargo'))
+  return kargoApps(folders, await appTrees($, options, folders))
 }
 
 /** Each app folder's entries, read in one query. */
@@ -389,23 +394,18 @@ async function appTrees($: EngineInterface, options: Options, apps: DeploymentAp
  */
 async function regionVersions($: EngineInterface, options: Options, apps: DeploymentApp[]): Promise<RegionVersion[][]> {
   if (apps.length === 0) return []
-  const trees = await appTrees($, options, apps)
-  const files = apps.map((app, index) => (trees[index] ?? []).flatMap(entry => {
-    const region = regionFileOf(entry.name)
-    return region ? [{ ...region, repository: app.repository, oid: entry.oid }] : []
-  }))
-  const known = ((await $.store.get(STABLE_VERSIONS_KEY)) ?? {}) as Record<string, string | null>
-  const unread = [...new Map(files.flat().filter(file => !(file.oid in known)).map(file => [file.oid, file])).values()]
-  const read: Record<string, string | null> = {}
+  const blobs = regionBlobsOf(apps, await appTrees($, options, apps))
+  const known = ((await $.store.get(STABLE_VERSIONS_KEY)) ?? {}) as StableVersions
+  const unread = unreadBlobs(blobs, known)
+  const read: StableVersions = {}
   if (unread.length > 0) {
     const { query, variables } = blobsQuery(unread)
     const texts = blobTextsOf(await graphql<BlobsData>($, options, query, variables), unread.length)
-    unread.forEach((file, index) => { read[file.oid] = stableVersionOf(texts[index] ?? '') })
+    unread.forEach((blob, index) => { read[blob.oid] = stableVersionOf(texts[index] ?? '') })
   }
-  const everyVersion = { ...known, ...read }
-  const versions = Object.fromEntries(files.flat().map(file => [file.oid, everyVersion[file.oid] ?? null]))
+  const versions = versionsOf(blobs, known, read)
   if (unread.length > 0 || Object.keys(known).length !== Object.keys(versions).length) await $.store.set(STABLE_VERSIONS_KEY, versions)
-  return files.map(list => list.map(file => ({ environment: file.environment, version: versions[file.oid] ?? null })))
+  return regionVersionsOf(blobs, versions)
 }
 
 /**
