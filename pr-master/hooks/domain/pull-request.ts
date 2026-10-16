@@ -32,6 +32,11 @@ export interface OpenPullRequest {
   reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null
   /** The head commit's checks. */
   checks: ChecksState
+  /**
+   * The login of who opened each unresolved review thread (its first comment's author).
+   * Read only while the merge state is BLOCKED; empty otherwise.
+   */
+  unresolvedThreadAuthors: string[]
 }
 
 /** Whose Turn it is, and the label that says why: a Readiness or a Review state. */

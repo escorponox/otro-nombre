@@ -1,7 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
-import type { Mounted } from 'claude-code/testing'
 
-import { GRAPHQL_URL, MY_PULL_REQUESTS_QUERY, SURFACES, github, paneMount, pullRequestNode, runPrs, startSession, world } from './world'
+import { GRAPHQL_URL, MY_PULL_REQUESTS_QUERY, SURFACES, drawnItem, github, paneMount, pullRequestNode, runPrs, startSession, world } from './world'
 
 const NOW = Date.parse('2026-10-16T12:00:00Z')
 
@@ -85,34 +84,4 @@ for (const [threshold, staleOnes] of [['off', []], ['2w', ['PR_7', 'PR_8']], ['3
     expect(stale).toEqual([...staleOnes])
     await ui.unmount()
   })
-}
-
-/** A drawn element as `FoundElement.children` holds it. */
-interface Drawn {
-  type: string
-  props: Record<string, unknown>
-  children: (Drawn | string)[]
-}
-
-const textOf = (node: Drawn | string | undefined): string =>
-  node === undefined ? '' : typeof node === 'string' ? node : node.children.map(textOf).join('')
-
-/**
- * An item as drawn: its bullet's dot colour; on its first line `#number repo`, then its label and age,
- * and whether it is marked stale; its title on the line under it.
- */
-async function drawnItem(ui: Mounted<(typeof SURFACES)[number], 'Pane'>, id: string) {
-  const item = await ui.find({ key: `item:${id}` })
-  const [bullet, column] = (item?.children ?? []) as Drawn[]
-  const [firstLine, title] = (column?.children ?? []) as Drawn[]
-  const [ref, ...rest] = firstLine?.children ?? []
-  const [, meta, stale] = rest.map(textOf)
-  const dot = bullet?.children[0] as Drawn | undefined
-  return {
-    dot: dot?.props.color,
-    ref: textOf(ref),
-    meta,
-    isStale: stale === ' · stale',
-    title: textOf(title),
-  }
 }

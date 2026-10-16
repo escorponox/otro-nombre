@@ -3,11 +3,14 @@ import type { EngineInterface, On } from 'claude-code'
 
 import type { RefreshProblem } from '../types'
 import { toItem } from './domain/item'
+import type { OpenPullRequest } from './domain/pull-request'
 import { readiness } from './domain/readiness'
 import { visibleOnly } from './domain/visibility'
 import { GH_TOKEN_COMMANDS, NoToken, graphqlData, graphqlRequest } from './github/client'
 import { MY_PULL_REQUESTS, OPEN_PULL_REQUESTS_SEARCH, openPullRequestsOf } from './github/open-pull-requests'
 import type { OpenPullRequestsSearchData } from './github/open-pull-requests'
+import { REVIEW_THREADS, needsThreads, withUnresolvedThreads } from './github/threads'
+import type { ReviewThreadsData } from './github/threads'
 import type { Options } from './options'
 import { EMPTY_SNAPSHOT } from './snapshot'
 
@@ -57,12 +60,21 @@ export function registerRefresh(on: On, options: Options) {
 async function refresh($: EngineInterface, options: Options): Promise<void> {
   try {
     const data = await graphql<OpenPullRequestsSearchData>($, options, OPEN_PULL_REQUESTS_SEARCH, { q: MY_PULL_REQUESTS })
+    const prs = await withThreads($, options, visibleOnly(openPullRequestsOf(data), options))
     const now = await $.clock.now()
-    const mine = visibleOnly(openPullRequestsOf(data), options).map(pr => toItem(pr, readiness(pr), now, options.staleThreshold))
+    const mine = prs.map(pr => toItem(pr, readiness(pr), now, options.staleThreshold))
     await update($, snapshot, () => ({ mine, updatedAt: now, problem: null }))
   } catch (error) {
     await update($, snapshot, last => ({ ...last, problem: problemOf(error) }))
   }
+}
+
+/** `prs` with their unresolved review threads, read by a second query for the ones that need them. */
+async function withThreads($: EngineInterface, options: Options, prs: OpenPullRequest[]): Promise<OpenPullRequest[]> {
+  const ids = prs.filter(needsThreads).map(pr => pr.id)
+  if (ids.length === 0) return prs
+  const data = await graphql<ReviewThreadsData>($, options, REVIEW_THREADS, { ids })
+  return withUnresolvedThreads(prs, data)
 }
 
 /** Runs a GraphQL query over the host's HTTP fetch; rejects with `NoToken` or `GitHubError`. */

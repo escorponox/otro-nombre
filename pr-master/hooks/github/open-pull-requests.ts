@@ -66,5 +66,7 @@ export function toOpenPullRequest(node: OpenPullRequestNode): OpenPullRequest {
     mergeState: node.mergeStateStatus,
     reviewDecision: node.reviewDecision,
     checks: node.commits.nodes[0]?.commit.statusCheckRollup?.state ?? null,
+    // Read by a second query, and only for blocked pull requests (see `threads.ts`).
+    unresolvedThreadAuthors: [],
   }
 }
