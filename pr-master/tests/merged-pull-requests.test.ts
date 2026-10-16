@@ -135,6 +135,31 @@ test('the release is the earliest one whose tag contains the merge commit, check
   await ui.unmount()
 })
 
+test('a compare answer is kept across refreshes: the next refresh asks GitHub only for what it could not tell', async ($, on) => {
+  const { ui, gh } = await openPanel($, on, 'terminal', {
+    tab: 'merged',
+    merged: [
+      mergedPullRequestNode(12, { releases: [{ tag: 'v1.3.0', createdAt: '2026-10-15T11:00:00Z' }] }),
+      mergedPullRequestNode(13, { repo: 'acme/web', releases: [{ tag: 'v2.0.0', createdAt: '2026-10-15T11:00:00Z' }] }),
+    ],
+  })
+  // GitHub now knows v1.3.0 (it carries #12) but not yet v2.0.0.
+  gh.compares['acme/api v1.3.0...merge-12'] = 'behind'
+  gh.mergedRequests.length = 0
+  await ui.press({ key: 'refresh' })
+  const compares = () => gh.mergedRequests.filter(request => request.url.includes('/compare/')).map(request => request.url)
+  expect(compares()).toEqual([
+    'https://api.github.com/repos/acme/api/compare/v1.3.0...merge-12?per_page=1',
+    'https://api.github.com/repos/acme/web/compare/v2.0.0...merge-13?per_page=1',
+  ])
+
+  gh.mergedRequests.length = 0
+  await ui.press({ key: 'refresh' })
+  expect(compares()).toEqual(['https://api.github.com/repos/acme/web/compare/v2.0.0...merge-13?per_page=1'])
+  expect(await drawnMergedItem(ui, 'PR_12')).toMatchObject({ shipment: { release: 'success' }, ref: '#12 api · merged 1d ago · v1.3.0' })
+  await ui.unmount()
+})
+
 test('a merged pull request no release contains yet shows its release on its way', async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   world(on)

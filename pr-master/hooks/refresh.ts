@@ -10,6 +10,8 @@ import type {
   SnapshotCache,
   TeamSwitch,
 } from '../types'
+import { ancestryKey, ancestryToKeep, isSameAncestry, keptAncestryOf } from './domain/ancestry'
+import type { KeptAncestry } from './domain/ancestry'
 import { unlistedAnalysisKeys } from './domain/analysis'
 import { ARM_MS, pressOf } from './domain/confirmation'
 import { toItem } from './domain/item'
@@ -59,6 +61,8 @@ const DEPLOYMENTS_KEY = 'deployments'
 const REDISCOVER_MS = 86_400_000
 /** The `$.store` key of the version each region file's blob promotes, by blob id; null when it has none. */
 const STABLE_VERSIONS_KEY = 'stable-versions'
+/** The `$.store` key of the compare answers GitHub could tell (see `KeptAncestry`). */
+const ANCESTRY_KEY = 'ancestry'
 
 /** Each repo's (`owner/name`) app folders in the deployments repos, and when they were discovered. */
 type DeploymentsCache = Record<string, { apps: DeploymentApp[]; checkedAt: number }>
@@ -232,12 +236,24 @@ async function fetchMerged($: EngineInterface, options: Options): Promise<Merged
   const prs = visibleOnly(mergedPullRequestsOf(data), options)
   const regionsOf = await promotedRegions($, options, [...new Set(prs.map(pr => pr.repository))])
   const now = await $.clock.now()
-  return Promise.all(prs.map(async pr => {
-    const ancestry = new Map<string, boolean | null>()
+  const ancestry: Ancestry = { kept: keptAncestryOf(await $.store.get(ANCESTRY_KEY)), answers: new Map() }
+  const items = await Promise.all(prs.map(async pr => {
     const release = await containingRelease($, options, pr, ancestry)
     const promotion = await regionsPromotion($, options, pr, regionsOf(pr.repository), ancestry)
     return toMergedItem(pr, release, promotion, now)
   }))
+  const toKeep = ancestryToKeep(ancestry.answers)
+  if (!isSameAncestry(toKeep, ancestry.kept)) await $.store.set(ANCESTRY_KEY, toKeep)
+  return items
+}
+
+/**
+ * One merged fetch's answers to whether a release tag contains a merge commit: the ones kept in
+ * the store by earlier refreshes, and the ones this fetch used, by `ancestryKey`.
+ */
+interface Ancestry {
+  kept: KeptAncestry
+  answers: Map<string, boolean | null>
 }
 
 /**
@@ -249,7 +265,7 @@ async function containingRelease(
   $: EngineInterface,
   options: Options,
   pr: MergedPullRequest,
-  ancestry: Map<string, boolean | null>,
+  ancestry: Ancestry,
 ): Promise<Release | null> {
   if (!awaitsRelease(pr)) return null
   for (const release of releaseCandidates(pr)) {
@@ -260,22 +276,26 @@ async function containingRelease(
 
 /**
  * Whether the release tagged `tag` contains the merge commit, by GitHub's compare; null when it
- * cannot be told (no merge commit, or GitHub knows no such tag). Each tag is compared once per
- * pull request and refresh: `ancestry` keeps the answers.
+ * cannot be told (no merge commit, or GitHub knows no such tag). A tag is compared once per
+ * refresh, and an answer GitHub could tell never again: `ancestry` keeps the answers.
  */
 async function containsMergeCommit(
   $: EngineInterface,
   options: Options,
   pr: MergedPullRequest,
   tag: string,
-  ancestry: Map<string, boolean | null>,
+  ancestry: Ancestry,
 ): Promise<boolean | null> {
   if (!pr.mergeCommit) return null
-  if (!ancestry.has(tag)) {
-    const status = comparisonStatusOf(await rest($, options, comparePath(pr.repository, tag, pr.mergeCommit.oid)))
-    ancestry.set(tag, status === null ? null : isContained(status))
-  }
-  return ancestry.get(tag) ?? null
+  const key = ancestryKey(pr.repository, tag, pr.mergeCommit.oid)
+  if (!ancestry.answers.has(key)) ancestry.answers.set(key, ancestry.kept[key] ?? (await compare($, options, pr.repository, tag, pr.mergeCommit.oid)))
+  return ancestry.answers.get(key) ?? null
+}
+
+/** Whether `tag` contains the commit `oid` in `repository`, by GitHub's compare; null when GitHub knows no such tag or commit. */
+async function compare($: EngineInterface, options: Options, repository: string, tag: string, oid: string): Promise<boolean | null> {
+  const status = comparisonStatusOf(await rest($, options, comparePath(repository, tag, oid)))
+  return status === null ? null : isContained(status)
 }
 
 /**
@@ -287,7 +307,7 @@ async function regionsPromotion(
   options: Options,
   pr: MergedPullRequest,
   regions: RegionVersion[],
-  ancestry: Map<string, boolean | null>,
+  ancestry: Ancestry,
 ): Promise<Promotion> {
   const promotions: { environment: Environment; promotion: RegionPromotion }[] = []
   for (const region of regions) {
