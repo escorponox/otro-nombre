@@ -1,0 +1,16 @@
+{
+  "name": "pr-master-mod",
+  "owner": {
+    "name": "Carlos Coves Prieto"
+  },
+  "metadata": {
+    "description": "Claude Code mods by Carlos Coves Prieto"
+  },
+  "plugins": [
+    {
+      "name": "pr-master",
+      "source": "./pr-master",
+      "description": "PR panel for Claude Code: your pull requests, review requests and merged pull requests, with whose Turn it is"
+    }
+  ]
+}
