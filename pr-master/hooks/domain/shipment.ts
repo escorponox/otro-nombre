@@ -1,4 +1,5 @@
 import type { MergedPullRequestItem, Shipment, ShipmentStep } from '../../types'
+import { ageInDays } from './age'
 import { NO_PROMOTION } from './promotion'
 import type { Promotion } from './promotion'
 import type { ChecksState } from './pull-request'
@@ -102,11 +103,19 @@ export function shipment(pr: MergedPullRequest, release: Release | null, promoti
 }
 
 /**
- * A merged pull request as the panel draws it, `release` being the earliest release containing it
- * (or null) and `promotion` its staging and production steps.
+ * A merged pull request as the panel draws it at `now`, `release` being the earliest release
+ * containing it (or null) and `promotion` its staging and production steps.
  */
-export function toMergedItem(pr: MergedPullRequest, release: Release | null, promotion: Promotion = NO_PROMOTION): MergedPullRequestItem {
-  return { id: pr.id, number: pr.number, repo: pr.repository, title: pr.title, url: pr.url, shipment: shipment(pr, release, promotion) }
+export function toMergedItem(pr: MergedPullRequest, release: Release | null, promotion: Promotion, now: number): MergedPullRequestItem {
+  return {
+    id: pr.id,
+    number: pr.number,
+    repo: pr.repository,
+    title: pr.title,
+    url: pr.url,
+    mergedDays: ageInDays(pr.mergedAt, now),
+    shipment: shipment(pr, release, promotion),
+  }
 }
 
 function ciStep(pr: MergedPullRequest, status: ShipStatus): ShipmentStep {

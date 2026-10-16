@@ -59,6 +59,8 @@ export interface MergedPullRequestItem {
   repo: string
   title: string
   url: string
+  /** Whole days since it was merged, at the refresh. */
+  mergedDays: number
   shipment: Shipment
 }
 

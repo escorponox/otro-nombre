@@ -212,11 +212,12 @@ async function fetchMerged($: EngineInterface, options: Options): Promise<Merged
   const data = await graphql<MergedPullRequestsSearchData>($, options, MERGED_PULL_REQUESTS_SEARCH, { q })
   const prs = visibleOnly(mergedPullRequestsOf(data), options)
   const regionsOf = await promotedRegions($, options, [...new Set(prs.map(pr => pr.repository))])
+  const now = await $.clock.now()
   return Promise.all(prs.map(async pr => {
     const ancestry = new Map<string, boolean | null>()
     const release = await containingRelease($, options, pr, ancestry)
     const promotion = await regionsPromotion($, options, pr, regionsOf(pr.repository), ancestry)
-    return toMergedItem(pr, release, promotion)
+    return toMergedItem(pr, release, promotion, now)
   }))
 }
 

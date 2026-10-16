@@ -62,7 +62,7 @@ for (const surface of SURFACES) {
 
     expect(await drawnMergedItem(ui, 'PR_12')).toMatchObject({
       shipment: { ci: 'success', release: 'success', stg: 'success', prod: 'warning' },
-      ref: '#12 api · v1.3.0',
+      ref: '#12 api · merged 1d ago · v1.3.0',
     })
     await ui.unmount()
   })

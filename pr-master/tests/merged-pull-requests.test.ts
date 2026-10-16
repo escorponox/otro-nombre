@@ -9,6 +9,7 @@ import {
   footer,
   github,
   mergedPullRequestNode,
+  openPanel,
   paneMount,
   pullRequestNode,
   runPrs,
@@ -70,12 +71,12 @@ for (const surface of SURFACES) {
       bullet: '▸',
       title: 'Add the thing',
       shipment: { ci: 'success', release: 'success', stg: 'inactive', prod: 'inactive' },
-      ref: '#12 api · v1.2.0',
+      ref: '#12 api · merged 1d ago · v1.2.0',
       indent: 2,
     })
     expect(await drawnMergedItem(ui, 'PR_13')).toMatchObject({
       shipment: { ci: 'error', release: 'inactive', stg: 'inactive', prod: 'inactive' },
-      ref: '#13 web',
+      ref: '#13 web · merged 1d ago',
     })
     expect(await drawnMergedItem(ui, 'PR_14')).toMatchObject({
       shipment: { ci: 'warning', release: 'inactive', stg: 'inactive', prod: 'inactive' },
@@ -84,6 +85,20 @@ for (const surface of SURFACES) {
     await ui.unmount()
   })
 }
+
+test('a Merged pull request shows how long ago it was merged, in whole days', async ($, on) => {
+  const { ui } = await openPanel($, on, 'terminal', {
+    tab: 'merged',
+    merged: [
+      mergedPullRequestNode(12, { mergedAt: '2026-10-13T11:00:00Z' }),
+      mergedPullRequestNode(13, { mergedAt: '2026-10-16T09:00:00Z' }),
+    ],
+  })
+
+  expect(await drawnMergedItem(ui, 'PR_12')).toMatchObject({ ref: '#12 api · merged 3d ago' })
+  expect(await drawnMergedItem(ui, 'PR_13')).toMatchObject({ ref: '#13 api · merged today' })
+  await ui.unmount()
+})
 
 test('the release is the earliest one whose tag contains the merge commit, checked by ancestry from the earliest candidate', async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
@@ -116,7 +131,7 @@ test('the release is the earliest one whose tag contains the merge commit, check
   ])
   expect(gh.mergedRequests[1]).toMatchObject({ method: 'GET' })
   expect(gh.mergedRequests[1]?.headers.Authorization).toBe('bearer gho_fake')
-  expect(await drawnMergedItem(ui, 'PR_12')).toMatchObject({ shipment: { ci: 'success', release: 'success' }, ref: '#12 api · v1.4.0' })
+  expect(await drawnMergedItem(ui, 'PR_12')).toMatchObject({ shipment: { ci: 'success', release: 'success' }, ref: '#12 api · merged 1d ago · v1.4.0' })
   await ui.unmount()
 })
 
@@ -132,7 +147,7 @@ test('a merged pull request no release contains yet shows its release on its way
   const ui = await $.ui.mount(paneMount('terminal'))
   await ui.press({ key: 'tab:merged' })
 
-  expect(await drawnMergedItem(ui, 'PR_12')).toMatchObject({ shipment: { ci: 'success', release: 'warning' }, ref: '#12 api' })
+  expect(await drawnMergedItem(ui, 'PR_12')).toMatchObject({ shipment: { ci: 'success', release: 'warning' }, ref: '#12 api · merged 1d ago' })
   await ui.unmount()
 })
 
