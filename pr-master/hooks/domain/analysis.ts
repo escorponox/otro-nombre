@@ -28,6 +28,15 @@ function parseAnalysisKey(key: string): { ref: string; headSha: string } | undef
   return match?.[1] && match[2] ? { ref: match[1], headSha: match[2] } : undefined
 }
 
+/** The store keys among `keys` of analyses of pull requests not in `listed`: the ones to forget. */
+export function unlistedAnalysisKeys(keys: readonly string[], listed: readonly PullRequestItem[]): string[] {
+  const refs = new Set(listed.map(analysisRef))
+  return keys.filter(key => {
+    const parsed = parseAnalysisKey(key)
+    return parsed !== undefined && !refs.has(parsed.ref)
+  })
+}
+
 /** Whether the pull request has moved on from the commit the analysis read. */
 export function isOutOfDate(analysis: Analysis, item: PullRequestItem): boolean {
   return analysis.headSha !== item.headSha

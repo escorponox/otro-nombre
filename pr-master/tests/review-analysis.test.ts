@@ -122,6 +122,17 @@ for (const surface of SURFACES) {
     await ui.unmount()
   })
 
+  test(`a refresh forgets the kept analyses of pull requests no longer listed (${surface})`, async ($, on) => {
+    const listed = `acme/web#41@${headShaOf(41)}`
+    const gone = `acme/web#99@${headShaOf(99)}`
+    const { ui, engine } = await openReviewTab($, on, surface, { [listed]: storedReview(headShaOf(41)), [gone]: storedReview(headShaOf(99)) })
+
+    expect(engine.store.has(listed)).toBe(true)
+    expect(engine.store.has(gone)).toBe(false)
+    expect(engine.store.has('snapshot-cache')).toBe(true)
+    await ui.unmount()
+  })
+
   test(`Continue in conversation sends the analysis into the conversation (${surface})`, async ($, on) => {
     const { ui, engine } = await openReviewTab($, on, surface, { [`acme/web#41@${headShaOf(41)}`]: storedReview(headShaOf(41)) })
 

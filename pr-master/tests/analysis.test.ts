@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { Analysis, PullRequestItem } from '../types'
-import { analysisKey, analysisPrompt, continuePrompt, isOutOfDate, latestAnalyses } from '../hooks/domain/analysis'
+import { analysisKey, analysisPrompt, continuePrompt, isOutOfDate, latestAnalyses, unlistedAnalysisKeys } from '../hooks/domain/analysis'
 
 const SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 const OLD_SHA = '0a1b2c3d4e5f60718293a4b5c6d7e8f901234567'
@@ -25,6 +25,11 @@ const analysis = (headSha: string, analysedAt: number): Analysis => ({ kind: 're
 
 test('an analysis is kept under owner/repo#number@headSha', () => {
   expect(analysisKey('acme/web#41', SHA)).toBe(`acme/web#41@${SHA}`)
+})
+
+test('the analyses kept for pull requests no longer listed are the ones to forget; other store keys are not analyses', () => {
+  const keys = [`acme/web#41@${SHA}`, `acme/web#41@${OLD_SHA}`, `acme/web#99@${SHA}`, `acme/api#41@${SHA}`, 'snapshot-cache', 'teamsOff']
+  expect(unlistedAnalysisKeys(keys, [item])).toEqual([`acme/web#99@${SHA}`, `acme/api#41@${SHA}`])
 })
 
 test('the Review analysis prompt names the pull request, its head commit and what to answer, and forbids changing anything', () => {

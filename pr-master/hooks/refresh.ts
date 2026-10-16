@@ -10,6 +10,7 @@ import type {
   SnapshotCache,
   TeamSwitch,
 } from '../types'
+import { unlistedAnalysisKeys } from './domain/analysis'
 import { ARM_MS, pressOf } from './domain/confirmation'
 import { toItem } from './domain/item'
 import { isDue } from './domain/polling'
@@ -203,7 +204,10 @@ async function fetchIntoCache($: EngineInterface, options: Options): Promise<voi
     await show($, cache)
   }
   const results = await Promise.allSettled([
-    fetchOpen($, options).then(lists => amend(current => ({ ...current, ...lists }))),
+    fetchOpen($, options).then(async lists => {
+      await amend(current => ({ ...current, ...lists }))
+      await forgetUnlistedAnalyses($, [...lists.mine, ...lists.review])
+    }),
     fetchMerged($, options).then(merged => amend(current => ({ ...current, merged }))),
   ])
   const failure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
@@ -371,6 +375,14 @@ async function regionVersions($: EngineInterface, options: Options, apps: Deploy
   const versions = Object.fromEntries(files.flat().map(file => [file.oid, everyVersion[file.oid] ?? null]))
   if (unread.length > 0 || Object.keys(known).length !== Object.keys(versions).length) await $.store.set(STABLE_VERSIONS_KEY, versions)
   return files.map(list => list.map(file => ({ environment: file.environment, version: versions[file.oid] ?? null })))
+}
+
+/**
+ * Deletes from the store the analyses (see `analyses.ts`) of the pull requests no longer in the
+ * open lists, merged or closed since: nothing would ever draw them again.
+ */
+async function forgetUnlistedAnalyses($: EngineInterface, listed: PullRequestItem[]): Promise<void> {
+  for (const key of unlistedAnalysisKeys(await $.store.keys(), listed)) await $.store.delete(key)
 }
 
 /** Draws `cache`'s snapshot in the pane and its counts in the status row. */
