@@ -38,6 +38,16 @@ export function registerRefresh(on: On, options: Options) {
     void refresh($, options)
     return next(e)
   })
+
+  // A settings change reloads the module, and a reload starts the session again: refresh the
+  // open panel so the new settings (the visibility filters among them) apply at once. Only an
+  // interactive session has a panel; the matcher also keeps this hook apart from pane.tsx's.
+  on('session.start', { isInteractive: true }, async ($, e, next) => {
+    const started = await next(e)
+    const panes = await $.ui.panes()
+    if (panes.some(pane => pane.id === 'pr-master')) void refresh($, options)
+    return started
+  })
 }
 
 /**

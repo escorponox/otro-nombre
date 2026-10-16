@@ -42,6 +42,41 @@ for (const surface of SURFACES) {
   })
 }
 
+// A settings change reloads the module with the new options. The kit fixes a test's options, so
+// this drives the reload alone (a second `session.start`) and shows it refetches, applying the
+// options the module now holds; the tests above show those options filter.
+for (const surface of SURFACES) {
+  test(`a reload with the panel open refreshes it, so a changed setting applies at once (${surface})`, async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    world(on)
+    const gh = github(on)
+    gh.searches[MY_PULL_REQUESTS_QUERY] = [pullRequestNode(1)]
+    await startSession($)
+    await runPrs($)
+    await clock.settle()
+    const ui = await $.ui.mount(paneMount(surface))
+    expect((await ui.find({ key: 'tab:mine' }))?.text).toBe('Mine 1')
+
+    gh.searches[MY_PULL_REQUESTS_QUERY] = [pullRequestNode(1), pullRequestNode(2)]
+    await startSession($)
+    await clock.settle()
+    expect(gh.requests).toHaveLength(2)
+    expect((await ui.find({ key: 'tab:mine' }))?.text).toBe('Mine 2')
+    await ui.unmount()
+  })
+}
+
+test('a reload with the panel closed does not reach GitHub', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  world(on)
+  const gh = github(on)
+  await startSession($)
+  await startSession($)
+  await clock.settle()
+
+  expect(gh.requests).toEqual([])
+})
+
 test('private repositories are shown unless the person turns them off', async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   world(on)
