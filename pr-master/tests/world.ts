@@ -71,8 +71,12 @@ export function github(on: On) {
     merged: [] as object[],
     /** When set, the search for merged pull requests alone answers this HTTP status. */
     mergedFailWith: undefined as number | undefined,
-    /** How long, on the mocked clock, the search for merged pull requests takes to answer. */
-    mergedDelayMs: 0,
+    /**
+     * What the search for merged pull requests waits for before it answers, e.g. `() => clock.sleep(5_000)`
+     * on the test's `mock.clock` (a fake cannot call `$.clock` from this file). Keep it under the
+     * hook's 10 s budget, past which the fake is dropped.
+     */
+    mergedWait: undefined as (() => Promise<void>) | undefined,
     /**
      * REST compare answers, keyed `owner/name tag...mergeCommitOid`, valued as GitHub's `status`
      * (`behind`, `identical`, `ahead`, `diverged`); a compare nobody canned is a 404.
@@ -122,7 +126,7 @@ export function github(on: On) {
         : { value: { status: 404, ok: false, headers: {}, text: '{"message":"Not Found"}' } }
     }
     if (isMergedSearch) {
-      if (fake.mergedDelayMs > 0) await $.clock.sleep(fake.mergedDelayMs)
+      await fake.mergedWait?.()
       if (fake.mergedFailWith !== undefined) {
         return { value: { status: fake.mergedFailWith, ok: false, headers: {}, text: '{"message":"Server Error"}' } }
       }
