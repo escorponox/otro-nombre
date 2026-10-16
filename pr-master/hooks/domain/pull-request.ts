@@ -30,6 +30,8 @@ export interface OpenPullRequest {
   mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN'
   mergeState: MergeState
   reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null
+  /** The head commit's SHA. */
+  headSha: string
   /** The head commit's checks. */
   checks: ChecksState
   /**

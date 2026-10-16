@@ -8,7 +8,7 @@ const SECOND = 1000
 
 /** A My pull request as another session cached it. */
 function cachedItem(n: number): PullRequestItem {
-  return { id: `PR_${n}`, number: n, repo: 'acme/api', title: `Cached ${n}`, url: `https://github.com/acme/api/pull/${n}`, author: 'me', turn: 'done', label: 'Ready to merge', ageDays: 1, isStale: false }
+  return { id: `PR_${n}`, number: n, repo: 'acme/api', title: `Cached ${n}`, url: `https://github.com/acme/api/pull/${n}`, author: 'me', turn: 'done', label: 'Ready to merge', ageDays: 1, isStale: false, headSha: `sha${n}`, isBehind: false }
 }
 
 /** A cache another session wrote at `fetchedAt`. */

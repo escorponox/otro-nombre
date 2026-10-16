@@ -22,6 +22,19 @@ export interface PullRequestItem {
   ageDays: number
   /** Older than the stale threshold, at the refresh. */
   isStale: boolean
+  /** The head commit's SHA: what a write action pins to, the commit the person is looking at. */
+  headSha: string
+  /** Its branch is behind its base branch (merge state BEHIND). */
+  isBehind: boolean
+}
+
+/** A write action under way or ended on one pull request, drawn on its action row. */
+export interface ActionProgress {
+  /** The action's kind, as in its Button's key (`merge`, `update`, `close`). */
+  kind: string
+  phase: 'running' | 'done' | 'failed'
+  /** Why it failed; only when `phase` is `failed`. */
+  problem?: string
 }
 
 /** How far a Merged pull request got in one step of its Shipment. */
@@ -92,6 +105,32 @@ export interface SnapshotCache {
   failures: number
 }
 
+/** The analyses Claude runs on demand: the Review analysis of a Review request. */
+export type AnalysisKind = 'review'
+
+/**
+ * An analysis's result, kept in `$.store` under `owner/repo#number@headSha` (see `analysisKey`),
+ * shared by the person's sessions.
+ */
+export interface Analysis {
+  kind: AnalysisKind
+  /** The head commit it read. */
+  headSha: string
+  /** The subagent's answer. */
+  text: string
+  /** When it finished, in `$.clock.now()` milliseconds. */
+  analysedAt: number
+}
+
+/** An analysis this session started and has not heard back from. */
+export interface RunningAnalysis {
+  kind: AnalysisKind
+  /** The head commit it reads. */
+  headSha: string
+  /** The subagent's id, which its `turn.complete` carries; absent when whoever started it gave none. */
+  agentId?: string
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'pr-master': {
@@ -111,6 +150,17 @@ declare module 'claude-code' {
       focused: string | null
       /** Why the last pull request action (open, copy) failed, shown on the refresh line; null when it did not or the person pressed on since. */
       actionProblem: string | null
+      /**
+       * The write action Button waiting for its confirming press: its key and when it was armed.
+       * Disarmed after three seconds, by a focus move, or by any other write action's press.
+       */
+      armed: { element: string; at: number } | null
+      /** Each pull request's last write action, by node id, until another write action on it runs. */
+      progress: Record<string, ActionProgress>
+      /** The latest analysis of each pull request, by `owner/repo#number`, as read from `$.store`. */
+      analyses: Record<string, Analysis>
+      /** The analyses running in this session, by `owner/repo#number`: at most one per pull request. */
+      analysing: Record<string, RunningAnalysis>
     }
   }
 }

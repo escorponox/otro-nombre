@@ -54,7 +54,22 @@ export function world(on: On, { store: entries = {} }: { store?: Record<string, 
     copies.push({ text: e.text, surface: e.surface })
     return { value: clipboard.copyFails ? { isCopied: false, reason: 'no-clipboard' } : { isCopied: true } }
   })
-  return { open, opens, commands, statuses, store, engineScrolls, copies, clipboard }
+  /**
+   * Every subagent the mod started, as the Agent tool's input reaches this kit (`prompt`,
+   * `description`, `subagent_type`, `run_in_background`). `agents.deny` makes the next spawns refused.
+   * The kit hands the mod no `agentId` (see testing notes), so a spawn here never completes.
+   */
+  const spawns: { prompt: string; description: string }[] = []
+  const agents = { deny: undefined as string | undefined }
+  on('agent.spawn', ($, e) => {
+    const input = e as unknown as { prompt: string; description: string }
+    spawns.push({ prompt: input.prompt, description: input.description })
+    return agents.deny === undefined ? { model: 'inherit' } : { deny: agents.deny }
+  })
+  /** Every prompt the mod submitted into the conversation. */
+  const prompts: string[] = []
+  on('prompt.submit', ($, e) => { prompts.push(e.text); return { text: e.text } })
+  return { open, opens, commands, statuses, store, engineScrolls, copies, clipboard, spawns, agents, prompts }
 }
 
 export const GRAPHQL_URL = 'https://api.github.com/graphql'
@@ -92,6 +107,10 @@ export function github(on: On) {
     openFailure: undefined as string | undefined,
     /** When set, every GraphQL request answers this HTTP status. */
     failWith: undefined as number | undefined,
+    /** When set, every GraphQL mutation answers this error message. */
+    mutationError: undefined as string | undefined,
+    /** Called as GitHub receives each mutation, before it answers: to look at the panel meanwhile. */
+    whileMutating: undefined as (() => Promise<void>) | undefined,
     /** The nodes answered to any search for merged pull requests (see `mergedPullRequestNode`); none by default. */
     merged: [] as object[],
     /** When set, the search for merged pull requests alone answers this HTTP status. */
@@ -107,7 +126,7 @@ export function github(on: On) {
      * (`behind`, `identical`, `ahead`, `diverged`); a compare nobody canned is a 404.
      */
     compares: {} as Record<string, string>,
-    /** The requests of the open pull requests' fetch, in order. */
+    /** The requests of the open pull requests' fetch, and the mutations, in order. */
     requests: [] as GitHubRequest[],
     /** The requests of the merged pull requests' fetch (the search and the compares), in order. */
     mergedRequests: [] as GitHubRequest[],
@@ -169,6 +188,11 @@ export function github(on: On) {
     }
     if (fake.failWith !== undefined) {
       return { value: { status: fake.failWith, ok: false, headers: {}, text: '{"message":"Server Error"}' } }
+    }
+    if (body.query?.startsWith('mutation')) {
+      await fake.whileMutating?.()
+      const answer = fake.mutationError === undefined ? { data: { pullRequest: {} } } : { errors: [{ message: fake.mutationError }] }
+      return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify(answer) } }
     }
     if (compare) {
       const [, repo, base, head] = compare
@@ -307,6 +331,7 @@ export function pullRequestNode(number: number, facts: {
   reviewDecision?: string | null
   checks?: string | null
   isPrivate?: boolean
+  headRefOid?: string
   author?: string
   /** The viewer's latest review state, e.g. 'DISMISSED'. */
   myReview?: string | null
@@ -324,6 +349,7 @@ export function pullRequestNode(number: number, facts: {
     mergeStateStatus: facts.mergeStateStatus ?? 'CLEAN',
     reviewDecision: facts.reviewDecision === undefined ? 'APPROVED' : facts.reviewDecision,
     createdAt: facts.createdAt ?? '2026-10-13T00:00:00Z',
+    headRefOid: facts.headRefOid ?? headShaOf(number),
     author: { login: facts.author ?? 'me' },
     repository: { nameWithOwner: repo, isPrivate: facts.isPrivate ?? false, owner: { login: repo.split('/')[0] } },
     commits: { nodes: [{ commit: { statusCheckRollup: facts.checks === null ? null : { state: facts.checks ?? 'SUCCESS' } } }] },
@@ -331,6 +357,9 @@ export function pullRequestNode(number: number, facts: {
     timelineItems: { nodes: (facts.requestedTeams ?? []).map(slug => ({ requestedReviewer: { combinedSlug: slug } })) },
   }
 }
+
+/** The head commit SHA `pullRequestNode(number)` has unless its `headRefOid` fact says otherwise. */
+export const headShaOf = (number: number) => `sha${number}`
 
 /**
  * A merged pull request node as GitHub's GraphQL search returns it: merged at `mergedAt`

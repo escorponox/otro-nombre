@@ -16,5 +16,7 @@ export function toItem(pr: OpenPullRequest, verdict: Verdict, now: number, stale
     label: verdict.label,
     ageDays: ageInDays(pr.createdAt, now),
     isStale: isStale(pr.createdAt, now, staleThreshold),
+    headSha: pr.headSha,
+    isBehind: pr.mergeState === 'BEHIND',
   }
 }

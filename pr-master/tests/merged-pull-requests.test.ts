@@ -18,7 +18,7 @@ const NOW = Date.parse('2026-10-16T12:00:00Z')
 
 const mergedSearch = (since: string) => `is:pr is:merged author:@me archived:false merged:>${since} sort:updated-desc`
 
-test('opening the panel searches for pull requests merged within the last week by default', async ($, on) => {
+test('opening the panel searches for pull requests merged within the last three days by default', async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   world(on)
   const gh = github(on)
@@ -27,11 +27,11 @@ test('opening the panel searches for pull requests merged within the last week b
   await clock.settle()
 
   expect(gh.mergedRequests).toHaveLength(1)
-  expect(gh.mergedRequests[0]).toMatchObject({ url: GRAPHQL_URL, method: 'POST', variables: { q: mergedSearch('2026-10-09T12:00:00+00:00') } })
+  expect(gh.mergedRequests[0]).toMatchObject({ url: GRAPHQL_URL, method: 'POST', variables: { q: mergedSearch('2026-10-13T12:00:00+00:00') } })
   expect(gh.mergedRequests[0]?.query).toContain('statusCheckRollup { state contexts')
 })
 
-for (const [window, since] of [['1d', '2026-10-15T12:00:00+00:00'], ['3d', '2026-10-13T12:00:00+00:00']] as const) {
+for (const [window, since] of [['1d', '2026-10-15T12:00:00+00:00'], ['1w', '2026-10-09T12:00:00+00:00']] as const) {
   test(`the merged window ${window} searches from ${since}`, { options: { mergedWindow: window } }, async ($, on) => {
     const clock = mock.clock(on, { now: NOW })
     world(on)
