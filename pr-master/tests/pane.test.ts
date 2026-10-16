@@ -1,10 +1,11 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 import type { Mounted } from 'claude-code/testing'
 
 import { SURFACES, paneMount, runPrs, startSession, world } from './world'
 
 for (const surface of SURFACES) {
   test(`the pane shows the tabs Mine, Review and Merged with their counts, Mine first (${surface})`, async ($, on) => {
+    mock.clock(on)
     world(on)
     await startSession($)
     await runPrs($)
@@ -22,6 +23,7 @@ for (const surface of SURFACES) {
   })
 
   test(`pressing a tab switches to it (${surface})`, async ($, on) => {
+    mock.clock(on)
     world(on)
     await startSession($)
     await runPrs($)
@@ -37,6 +39,7 @@ for (const surface of SURFACES) {
   })
 
   test(`l shows and hides the legend of Turn and Shipment colours (${surface})`, async ($, on) => {
+    mock.clock(on)
     world(on)
     await startSession($)
     await runPrs($)

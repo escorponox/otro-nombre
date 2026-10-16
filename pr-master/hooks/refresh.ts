@@ -1,24 +1,41 @@
 import { atom, update } from 'claude-code'
-import type { EngineInterface, HttpResponse, On } from 'claude-code'
+import type { EngineInterface, HttpResponse, On, Timer } from 'claude-code'
 
-import type { RefreshProblem } from '../types'
+import type { MergedPullRequestItem, PullRequestItem, RefreshProblem, Snapshot, SnapshotCache, TeamSwitch } from '../types'
 import { toItem } from './domain/item'
+import { isDue } from './domain/polling'
 import type { OpenPullRequest } from './domain/pull-request'
 import { readiness } from './domain/readiness'
+import { reviewState } from './domain/review-state'
+import { reviewWindowStart } from './domain/review-window'
 import { awaitsRelease, isContained, releaseCandidates, toMergedItem } from './domain/shipment'
 import type { MergedPullRequest, Release } from './domain/shipment'
+import { statusRow } from './domain/status-row'
 import { visibleOnly } from './domain/visibility'
 import { GH_TOKEN_COMMANDS, NoToken, graphqlData, graphqlRequest, restRequest } from './github/client'
 import { MERGED_PULL_REQUESTS_SEARCH, comparePath, comparisonStatusOf, mergedPullRequestsOf, mergedPullRequestsSearch } from './github/merged'
 import type { MergedPullRequestsSearchData } from './github/merged'
 import { MY_PULL_REQUESTS, OPEN_PULL_REQUESTS_SEARCH, openPullRequestsOf } from './github/open-pull-requests'
 import type { OpenPullRequestsSearchData } from './github/open-pull-requests'
+import { VIEWER_TEAMS, reviewRequestsOf, reviewRequestsQuery, teamsOf } from './github/review-requests'
+import type { ReviewRequestsData, ViewerTeamsData } from './github/review-requests'
 import { REVIEW_THREADS, needsThreads, withUnresolvedThreads } from './github/threads'
 import type { ReviewThreadsData } from './github/threads'
 import type { Options } from './options'
+import { PANE_ID } from './pane'
 import { EMPTY_SNAPSHOT } from './snapshot'
 
 const GH_TIMEOUT_MS = 10_000
+/** The `$.store` key of the snapshot cache shared by the person's sessions. */
+const CACHE_KEY = 'snapshot-cache'
+/** How often the session looks at the shared cache; `isDue` decides whether it fetches. */
+const POLL_TICK_MS = 15_000
+
+/** The `$.store` key of the teams the person switched off (`org/team` list). */
+const TEAMS_OFF = 'teamsOff'
+
+/** The key prefix of a team switch Button in the pane. */
+const TEAM_SWITCH = 'team:'
 
 // The engine's scan only accepts atoms declared in the file that reads and writes them.
 const snapshot = atom({ plugin: 'pr-master', key: 'snapshot' } as const, EMPTY_SNAPSHOT)
@@ -29,15 +46,38 @@ const snapshot = atom({ plugin: 'pr-master', key: 'snapshot' } as const, EMPTY_S
  */
 let token: Promise<string | undefined> | undefined
 
+/** This session's poller; a module reload drops it with the old module, a second `session.start` replaces it. */
+let poller: Timer | undefined
+/** The last poll this session queued; the next one waits for it. */
+let polling: Promise<void> = Promise.resolve()
+/** The fetch this session has in flight, joined by any refresh asked for meanwhile. */
+let fetching: Promise<void> | undefined
+/** The `fetchedAt` of the cache this session last showed, so an unchanged cache is not shown again. */
+let shownFetchedAt: number | undefined
+
 /**
- * Keeps the snapshot the pane draws: refreshes it when the pane opens and when the person
- * presses the pane's `refresh` Button. Everything that reaches GitHub through `$` lives in
- * this file, since the engine follows `$` only into functions declared in the same file.
+ * Keeps the snapshot the pane draws and the status row: a poller started with the session
+ * shows the shared cache and fetches when it is due (60 s with the pane open, five minutes
+ * closed, backed off after failures); opening the pane polls at once, and the pane's
+ * `refresh` Button fetches now. Everything that reaches GitHub through `$` lives in this file,
+ * since the engine follows `$` only into functions declared in the same file.
  */
 export function registerRefresh(on: On, options: Options) {
+  // Only a session a person sits at polls (a `-p` run has no panel and shows no status row).
+  // The matcher is also what lets this hook stand beside pane.tsx's own `session.start` hook.
+  // A settings change reloads the module, and a reload starts the session again: an open panel
+  // is refreshed at once so the new settings (the visibility filters among them) apply.
+  on('session.start', { isInteractive: true }, async ($, e, next) => {
+    const started = await next(e)
+    poller?.cancel()
+    poller = $.clock.every(POLL_TICK_MS, () => poll($, options))
+    void ((await isPaneOpen($)) ? refresh($, options) : poll($, options))
+    return started
+  })
+
   on('ui.open', { id: 'pr-master' }, async ($, e, next) => {
     const opened = await next(e)
-    void refresh($, options)
+    void poll($, options)
     return opened
   })
 
@@ -46,50 +86,86 @@ export function registerRefresh(on: On, options: Options) {
     return next(e)
   })
 
-  // A settings change reloads the module, and a reload starts the session again: refresh the
-  // open panel so the new settings (the visibility filters among them) apply at once. Only an
-  // interactive session has a panel; the matcher also keeps this hook apart from pane.tsx's.
-  on('session.start', { isInteractive: true }, async ($, e, next) => {
-    const started = await next(e)
-    const panes = await $.ui.panes()
-    if (panes.some(pane => pane.id === 'pr-master')) void refresh($, options)
-    return started
+  // The Review tab's team switches, keyed `team:<org/team>`.
+  on('ui.press', { plugin: 'pr-master' }, async ($, e, next) => {
+    if (e.element.startsWith(TEAM_SWITCH)) await switchTeam($, options, e.element.slice(TEAM_SWITCH.length))
+    return next(e)
   })
 }
 
 /**
- * Fetches from GitHub now and refreshes the snapshot. The open pull requests and the merged ones
- * are fetched side by side and each list is written as soon as it arrives, so the slower merged
- * fetch never holds back the Mine tab. A failed fetch keeps its last list; once both are done,
- * the snapshot records the problem, if any.
+ * Polls one at a time, so that a poll reads the cache the poll before it wrote: two polls at
+ * once (the session's first and the pane opening) would otherwise both find it due.
  */
-async function refresh($: EngineInterface, options: Options): Promise<void> {
-  const results = await Promise.allSettled([refreshOpen($, options), refreshMerged($, options)])
-  const failure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
-  await update($, snapshot, last => ({ ...last, problem: failure ? problemOf(failure.reason) : null }))
+function poll($: EngineInterface, options: Options): Promise<void> {
+  polling = polling.catch(() => undefined).then(() => pollOnce($, options))
+  return polling
 }
 
-/** Fetches the open pull requests and derives each one's Turn and label with the domain rules. */
-async function refreshOpen($: EngineInterface, options: Options): Promise<void> {
+/**
+ * Fetches when the shared cache is due for this session (see `isDue`), and otherwise shows
+ * the cache, which another session may have written since.
+ */
+async function pollOnce($: EngineInterface, options: Options): Promise<void> {
+  const cache = await readCache($)
+  if (isDue(cache, await $.clock.now(), await isPaneOpen($))) return refresh($, options)
+  if (cache && cache.fetchedAt !== shownFetchedAt) await show($, cache)
+}
+
+/** Fetches now, or joins the fetch this session already has in flight. */
+function refresh($: EngineInterface, options: Options): Promise<void> {
+  fetching ??= fetchIntoCache($, options).finally(() => {
+    fetching = undefined
+  })
+  return fetching
+}
+
+/**
+ * Fetches from GitHub, derives each pull request's Turn, label and Shipment with the domain
+ * rules, and writes the snapshot to the shared cache (last writer wins) and shows it.
+ *
+ * The open pull requests and the merged ones are fetched side by side, and each list is written
+ * as soon as it arrives: the slower merged fetch never holds back the Mine and Review tabs. A
+ * failed fetch keeps its cached list; once both are done, the snapshot records the problem, if
+ * any, and the cache counts the failure for the back-off.
+ */
+async function fetchIntoCache($: EngineInterface, options: Options): Promise<void> {
+  const last = await readCache($)
+  let shot: Snapshot = { ...EMPTY_SNAPSHOT, ...last?.snapshot }
+  const failuresBefore = last?.failures ?? 0
+  /** Applies `change` to this fetch's snapshot, writes it to the shared cache and shows it. */
+  const amend = async (change: (current: Snapshot) => Snapshot, failures = failuresBefore) => {
+    shot = change(shot)
+    const cache: SnapshotCache = { snapshot: shot, fetchedAt: await $.clock.now(), failures }
+    await $.store.set(CACHE_KEY, cache)
+    await show($, cache)
+  }
+  const results = await Promise.allSettled([
+    fetchOpen($, options).then(lists => amend(current => ({ ...current, ...lists }))),
+    fetchMerged($, options).then(merged => amend(current => ({ ...current, merged }))),
+  ])
+  const failure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+  await amend(current => ({ ...current, problem: failure ? problemOf(failure.reason) : null }), failure ? failuresBefore + 1 : 0)
+}
+
+/** The open pull requests' lists: My pull requests and Review requests with their Turn and label, and the teams. */
+async function fetchOpen($: EngineInterface, options: Options): Promise<Pick<Snapshot, 'mine' | 'review' | 'teams' | 'updatedAt'>> {
   const data = await graphql<OpenPullRequestsSearchData>($, options, OPEN_PULL_REQUESTS_SEARCH, { q: MY_PULL_REQUESTS })
   const prs = await withThreads($, options, visibleOnly(openPullRequestsOf(data), options))
+  const { review, teams } = await reviewRequests($, options)
   const now = await $.clock.now()
   const mine = prs.map(pr => toItem(pr, readiness(pr), now, options.staleThreshold))
-  await update($, snapshot, last => ({ ...last, mine, updatedAt: now }))
+  return { mine, review, teams, updatedAt: now }
 }
 
-/** Fetches the pull requests merged within the merged window and derives each one's Shipment. */
-async function refreshMerged($: EngineInterface, options: Options): Promise<void> {
+/** The pull requests merged within the merged window, each with its Shipment; none when the window is off. */
+async function fetchMerged($: EngineInterface, options: Options): Promise<MergedPullRequestItem[]> {
   const q = mergedPullRequestsSearch(options.mergedWindow, await $.clock.now())
-  if (q === null) {
-    await update($, snapshot, last => ({ ...last, merged: [] }))
-    return
-  }
+  if (q === null) return []
   const data = await graphql<MergedPullRequestsSearchData>($, options, MERGED_PULL_REQUESTS_SEARCH, { q })
   const prs = visibleOnly(mergedPullRequestsOf(data), options)
-  const merged = await Promise.all(prs.map(async pr => toMergedItem(pr, await containingRelease($, options, pr))))
-  // Promotions to staging and production (ticket 09) are read here, before the list is written.
-  await update($, snapshot, last => ({ ...last, merged }))
+  // Promotions to staging and production (ticket 09) are read here too, beside the release.
+  return Promise.all(prs.map(async pr => toMergedItem(pr, await containingRelease($, options, pr))))
 }
 
 /**
@@ -104,6 +180,59 @@ async function containingRelease($: EngineInterface, options: Options, pr: Merge
     if (status && isContained(status)) return release
   }
   return null
+}
+
+/** Draws `cache`'s snapshot in the pane and its counts in the status row. */
+async function show($: EngineInterface, cache: SnapshotCache): Promise<void> {
+  shownFetchedAt = cache.fetchedAt
+  const shot: Snapshot = { ...EMPTY_SNAPSHOT, ...cache.snapshot }
+  await update($, snapshot, () => shot)
+  $.ui.status(statusRow(shot))
+}
+
+/** Whether this session's panel is open, as the engine's pane list says. */
+async function isPaneOpen($: EngineInterface): Promise<boolean> {
+  return (await $.ui.panes()).some(pane => pane.id === PANE_ID)
+}
+
+/** The shared cache, or undefined when no session has written one. */
+async function readCache($: EngineInterface): Promise<SnapshotCache | undefined> {
+  return ((await $.store.get(CACHE_KEY)) ?? undefined) as SnapshotCache | undefined
+}
+
+/**
+ * The Review requests of the person's teams switched on, plus their dismissed approvals, with
+ * every team's switch and count. Two queries: the teams, then every team's search at once.
+ */
+async function reviewRequests($: EngineInterface, options: Options): Promise<{ review: PullRequestItem[]; teams: TeamSwitch[] }> {
+  const off = await teamsOff($)
+  const teamsData = await graphql<ViewerTeamsData>($, options, VIEWER_TEAMS, {})
+  const teams = teamsOf(teamsData, options).map(slug => ({ slug, isOn: !off.includes(slug) }))
+  const now = await $.clock.now()
+  const search = reviewRequestsQuery(teams, reviewWindowStart(now, options.reviewWindow), options)
+  const data = await graphql<ReviewRequestsData>($, options, search.query, search.variables)
+  const { requests, counts } = reviewRequestsOf(data, teams)
+  return {
+    review: visibleOnly(requests, options).map(pr => toItem(pr, reviewState(pr), now, options.staleThreshold)),
+    teams: teams.map((team, index) => ({ ...team, count: counts[index] ?? 0 })),
+  }
+}
+
+/** The teams the person switched off, from the store shared by every session; any other team is on. */
+async function teamsOff($: EngineInterface): Promise<string[]> {
+  const stored = await $.store.get(TEAMS_OFF)
+  return Array.isArray(stored) ? stored.filter(slug => typeof slug === 'string') : []
+}
+
+/** Switches a team on or off for every session, shows the switch at once, and refreshes the lists. */
+async function switchTeam($: EngineInterface, options: Options, slug: string): Promise<void> {
+  const off = await teamsOff($)
+  await $.store.set(TEAMS_OFF, off.includes(slug) ? off.filter(other => other !== slug) : [...off, slug])
+  await update($, snapshot, shot => ({
+    ...shot,
+    teams: shot.teams.map(team => (team.slug === slug ? { ...team, isOn: !team.isOn } : team)),
+  }))
+  void refresh($, options)
 }
 
 /** `prs` with their unresolved review threads, read by a second query for the ones that need them. */

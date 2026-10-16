@@ -1,3 +1,4 @@
+import { isFailing, isRunning } from './pull-request'
 import type { OpenPullRequest, Verdict } from './pull-request'
 
 /** One row of a ladder: when `holds`, the pull request gets `verdict`. */
@@ -5,9 +6,6 @@ interface Rung {
   holds: (pr: OpenPullRequest) => boolean
   verdict: Verdict
 }
-
-const isFailing = (pr: OpenPullRequest) => pr.checks === 'FAILURE' || pr.checks === 'ERROR'
-const isRunning = (pr: OpenPullRequest) => pr.checks === 'PENDING' || pr.checks === 'EXPECTED'
 
 /** The Quill reviewer's login as GitHub's GraphQL API gives it: a GitHub App, without REST's `[bot]` suffix. */
 const QUILL_REVIEWER = 'quill-reviewer'

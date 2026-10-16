@@ -5,23 +5,27 @@ export const PLUGIN = 'pr-master'
 export const PANE_ID = 'pr-master'
 export const SURFACES = ['terminal', 'desktop'] as const
 
-/** The Pane's mount arguments as a docked pane on `surface`. */
-export function paneMount(surface: (typeof SURFACES)[number]) {
+/** The Pane's mount arguments as a docked pane on `surface`, its body `bodyRows` tall. */
+export function paneMount(surface: (typeof SURFACES)[number], bodyRows = 40) {
   return {
     plugin: PLUGIN,
     surface,
     component: 'Pane',
     requestId: PANE_ID,
-    props: { title: 'PR Master', isFocused: true, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
+    props: { title: 'PR Master', isFocused: true, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows }, view: {} },
   } as const
 }
 
+/** The `$.store` key of the snapshot cache shared by the person's sessions. */
+export const CACHE_KEY = 'snapshot-cache'
+
 /**
  * The world beneath the mod, answered as Claude Code would: the session's panes
- * (`open` is the engine's pane record) and the commands the mod registers.
- * Call before the first call on `$`.
+ * (`open` is the engine's pane record), the commands the mod registers, the status
+ * row under the prompt, and `$.store`, shared with the person's other sessions
+ * (seed it with `store` to stand for what they wrote). Call before the first call on `$`.
  */
-export function world(on: On) {
+export function world(on: On, { store: entries = {} }: { store?: Record<string, unknown> } = {}) {
   const open = new Set<string>()
   /** Every `$.ui.open` the mod made, with its arguments. */
   const opens: { id: string; focus?: boolean }[] = []
@@ -31,7 +35,26 @@ export function world(on: On) {
   on('ui.panes', () => ({ value: [...open].map(id => ({ id, title: id, isShown: true, isFocused: false, isPlaced: true })) }))
   on('ui.open', ($, e) => { open.add(e.id); opens.push({ id: e.id, focus: e.focus }); return { value: { isPlaced: true } } })
   on('ui.close', ($, e) => { open.delete(e.id); return { value: undefined } })
-  return { open, opens, commands }
+  /** Every `$.ui.status` the mod set, in order; `undefined` is a clear. */
+  const statuses: (string | undefined)[] = []
+  on('ui.status', ($, e) => { statuses.push(e.text); return { value: undefined } })
+  const store = new Map<string, unknown>(Object.entries(entries))
+  on('store.get', ($, e) => ({ value: store.get(e.key) }))
+  on('store.set', ($, e) => { store.set(e.key, e.value); return { value: undefined } })
+  on('store.delete', ($, e) => { store.delete(e.key); return { value: undefined } })
+  on('store.keys', () => ({ value: [...store.keys()] }))
+  /** Every scroll of a window the engine itself made: one the mod let through. */
+  const engineScrolls: number[] = []
+  on('ui.scroll', ($, e) => { engineScrolls.push(e.offset); return {} })
+  on('ui.focus', () => ({}))
+  /** Every `$.ui.copy` the mod made. `copyFails` makes the next copies reach no clipboard. */
+  const copies: { text: string; surface: string | undefined }[] = []
+  const clipboard = { copyFails: false }
+  on('ui.copy', ($, e) => {
+    copies.push({ text: e.text, surface: e.surface })
+    return { value: clipboard.copyFails ? { isCopied: false, reason: 'no-clipboard' } : { isCopied: true } }
+  })
+  return { open, opens, commands, statuses, store, engineScrolls, copies, clipboard }
 }
 
 export const GRAPHQL_URL = 'https://api.github.com/graphql'
@@ -65,6 +88,8 @@ export function github(on: On) {
     searches: { [MY_PULL_REQUESTS_QUERY]: [] } as Record<string, object[]>,
     /** The review threads of each pull request, by node id. */
     threads: {} as Record<string, object[]>,
+    /** What `open <url>` prints to stderr as it exits 1; undefined: it opens the browser. */
+    openFailure: undefined as string | undefined,
     /** When set, every GraphQL request answers this HTTP status. */
     failWith: undefined as number | undefined,
     /** The nodes answered to any search for merged pull requests (see `mergedPullRequestNode`); none by default. */
@@ -87,9 +112,20 @@ export function github(on: On) {
     /** The requests of the merged pull requests' fetch (the search and the compares), in order. */
     mergedRequests: [] as GitHubRequest[],
     argvs: [] as string[][],
+    /**
+     * Called on each request of the open pull requests' fetch before it is answered: what happens
+     * elsewhere while the request is in flight.
+     */
+    whileInFlight: undefined as (() => void) | undefined,
+    /** The teams of the viewer's organisations the viewer belongs to, as member or as admin. */
+    teams: [] as FakeTeam[],
   }
   on('process.run', ($, e) => {
     fake.argvs.push([...e.argv])
+    if (e.argv[0] === 'open') {
+      const exitCode = fake.openFailure === undefined ? 0 : 1
+      return { value: { exitCode, stdout: '', stderr: fake.openFailure ?? '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
     if (fake.ghToken === 'missing') throw new Error(`${e.argv[0]}: not found`)
     const isLoggedIn = fake.ghToken !== null
     return {
@@ -113,8 +149,12 @@ export function github(on: On) {
       query: body.query ?? '',
       variables: body.variables ?? {},
     }
-    if (compare || isMergedSearch) fake.mergedRequests.push(request)
-    else fake.requests.push(request)
+    if (compare || isMergedSearch) {
+      fake.mergedRequests.push(request)
+    } else {
+      fake.requests.push(request)
+      fake.whileInFlight?.()
+    }
     if (fake.failWith !== undefined) {
       return { value: { status: fake.failWith, ok: false, headers: {}, text: '{"message":"Server Error"}' } }
     }
@@ -132,6 +172,17 @@ export function github(on: On) {
       }
       return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ data: { search: { nodes: fake.merged } } }) } }
     }
+    if (body.query?.includes('query ViewerTeams')) {
+      return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ data: viewerTeams(fake.teams) }) } }
+    }
+    const aliased = aliasedSearches(body.query ?? '')
+    if (aliased.length > 0) {
+      const data = Object.fromEntries(aliased.map(({ alias, variable, first }) => {
+        const nodes = fake.searches[String(body.variables?.[variable])] ?? []
+        return [alias, { issueCount: nodes.length, nodes: nodes.slice(0, first) }]
+      }))
+      return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ data }) } }
+    }
     const ids = body.variables?.ids as string[] | undefined
     const nodes = fake.searches[String(body.variables?.q)]
     const answer = ids
@@ -142,6 +193,37 @@ export function github(on: On) {
     return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify(answer) } }
   })
   return fake
+}
+
+/** The requests other than the Review request ones (the viewer's teams and their searches), in order. */
+export function exceptReviewRequests(requests: GitHubRequest[]): GitHubRequest[] {
+  return requests.filter(r => !r.query.includes('query ViewerTeams') && !r.query.includes('query ReviewRequests'))
+}
+
+/** A team the viewer is in: `slug` is `org/team`. */
+export interface FakeTeam {
+  slug: string
+  role: 'MEMBER' | 'ADMIN'
+}
+
+/** The `ViewerTeams` answer: one organisation node per org, its teams split by the viewer's role. */
+function viewerTeams(teams: FakeTeam[]) {
+  const orgs = [...new Set(teams.map(team => team.slug.split('/')[0]))]
+  const teamsOf = (org: string | undefined, role: FakeTeam['role']) => ({
+    nodes: teams.filter(team => team.role === role && team.slug.startsWith(`${org}/`)).map(team => ({ combinedSlug: team.slug })),
+  })
+  return {
+    viewer: { organizations: { nodes: orgs.map(org => ({ login: org, member: teamsOf(org, 'MEMBER'), admin: teamsOf(org, 'ADMIN') })) } },
+  }
+}
+
+/** The searches of a query holding several aliased ones: `alias: search(query: $variable, type: ISSUE, first: N)`. */
+function aliasedSearches(query: string) {
+  return [...query.matchAll(/(\w+): search\(query: \$(\w+), type: ISSUE, first: (\d+)\)/g)].map(([, alias, variable, first]) => ({
+    alias: alias ?? '',
+    variable: variable ?? '',
+    first: Number(first),
+  }))
 }
 
 /** A pull request node as GitHub's GraphQL search returns it: an approved, clean, public one unless `facts` say otherwise. */
@@ -155,6 +237,11 @@ export function pullRequestNode(number: number, facts: {
   reviewDecision?: string | null
   checks?: string | null
   isPrivate?: boolean
+  author?: string
+  /** The viewer's latest review state, e.g. 'DISMISSED'. */
+  myReview?: string | null
+  /** The teams (`org/team`) its timeline says were asked to review. */
+  requestedTeams?: string[]
 } = {}) {
   const repo = facts.repo ?? 'acme/api'
   return {
@@ -167,9 +254,11 @@ export function pullRequestNode(number: number, facts: {
     mergeStateStatus: facts.mergeStateStatus ?? 'CLEAN',
     reviewDecision: facts.reviewDecision === undefined ? 'APPROVED' : facts.reviewDecision,
     createdAt: facts.createdAt ?? '2026-10-13T00:00:00Z',
-    author: { login: 'me' },
+    author: { login: facts.author ?? 'me' },
     repository: { nameWithOwner: repo, isPrivate: facts.isPrivate ?? false, owner: { login: repo.split('/')[0] } },
     commits: { nodes: [{ commit: { statusCheckRollup: facts.checks === null ? null : { state: facts.checks ?? 'SUCCESS' } } }] },
+    viewerLatestReview: facts.myReview ? { state: facts.myReview } : null,
+    timelineItems: { nodes: (facts.requestedTeams ?? []).map(slug => ({ requestedReviewer: { combinedSlug: slug } })) },
   }
 }
 
@@ -236,13 +325,13 @@ export async function runPrs($: Engine) {
 }
 
 /** A drawn element as `FoundElement.children` holds it. */
-interface Drawn {
+export interface Drawn {
   type: string
   props: Record<string, unknown>
   children: (Drawn | string)[]
 }
 
-const textOf = (node: Drawn | string | undefined): string =>
+export const textOf = (node: Drawn | string | undefined): string =>
   node === undefined ? '' : typeof node === 'string' ? node : node.children.map(textOf).join('')
 
 /**

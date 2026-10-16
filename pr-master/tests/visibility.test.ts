@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { MY_PULL_REQUESTS_QUERY, SURFACES, github, paneMount, pullRequestNode, runPrs, startSession, world } from './world'
+import { MY_PULL_REQUESTS_QUERY, SURFACES, exceptReviewRequests, github, paneMount, pullRequestNode, runPrs, startSession, world } from './world'
 
 const NOW = Date.parse('2026-10-16T12:00:00Z')
 
@@ -60,7 +60,7 @@ for (const surface of SURFACES) {
     gh.searches[MY_PULL_REQUESTS_QUERY] = [pullRequestNode(1), pullRequestNode(2)]
     await startSession($)
     await clock.settle()
-    expect(gh.requests).toHaveLength(2)
+    expect(exceptReviewRequests(gh.requests)).toHaveLength(2)
     expect((await ui.find({ key: 'tab:mine' }))?.text).toBe('Mine 2')
     await ui.unmount()
   })
@@ -70,11 +70,14 @@ test('a reload with the panel closed does not reach GitHub', async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   world(on)
   const gh = github(on)
-  await startSession($)
+  // The session's first poll fills the shared cache; the reload finds it fresh.
   await startSession($)
   await clock.settle()
+  expect(exceptReviewRequests(gh.requests)).toHaveLength(1)
 
-  expect(gh.requests).toEqual([])
+  await startSession($)
+  await clock.settle()
+  expect(exceptReviewRequests(gh.requests)).toHaveLength(1)
 })
 
 test('private repositories are shown unless the person turns them off', async ($, on) => {
