@@ -2,7 +2,7 @@ import type { ChecksState, OpenPullRequest } from '../domain/pull-request'
 
 /** The GraphQL fields of an open pull request that `toOpenPullRequest` reads. */
 export const OPEN_PULL_REQUEST_FIELDS = `
-  id number title url isDraft mergeable mergeStateStatus reviewDecision createdAt
+  id number title url isDraft mergeable mergeStateStatus reviewDecision createdAt headRefOid
   author { login }
   repository { nameWithOwner isPrivate owner { login } }
   commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }`
@@ -18,6 +18,7 @@ export interface OpenPullRequestNode {
   mergeStateStatus: OpenPullRequest['mergeState']
   reviewDecision: OpenPullRequest['reviewDecision']
   createdAt: string
+  headRefOid: string
   /** `null` for a deleted account. */
   author: { login: string } | null
   repository: { nameWithOwner: string; isPrivate: boolean; owner: { login: string } }
@@ -61,6 +62,7 @@ export function toOpenPullRequest(node: OpenPullRequestNode): OpenPullRequest {
     isPrivate: node.repository.isPrivate,
     author: node.author?.login ?? 'ghost',
     createdAt: node.createdAt,
+    headSha: node.headRefOid,
     isDraft: node.isDraft,
     mergeable: node.mergeable,
     mergeState: node.mergeStateStatus,

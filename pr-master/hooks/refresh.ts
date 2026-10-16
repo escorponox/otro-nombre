@@ -173,7 +173,7 @@ async function reviewRequests($: EngineInterface, options: Options): Promise<{ r
   const data = await graphql<ReviewRequestsData>($, options, search.query, search.variables)
   const { requests, counts } = reviewRequestsOf(data, teams)
   return {
-    review: visibleOnly(requests, options).map(pr => toItem(pr, reviewState(pr), now, options.staleThreshold)),
+    review: visibleOnly(requests, options).map(pr => ({ ...toItem(pr, reviewState(pr), now, options.staleThreshold), isReviewRequest: true as const })),
     teams: teams.map((team, index) => ({ ...team, count: counts[index] ?? 0 })),
   }
 }

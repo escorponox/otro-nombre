@@ -26,6 +26,8 @@ export interface OpenPullRequest {
   author: string
   /** ISO 8601. */
   createdAt: string
+  /** The head commit's SHA. */
+  headSha: string
   isDraft: boolean
   mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN'
   mergeState: MergeState

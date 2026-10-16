@@ -15,6 +15,8 @@ export interface PullRequestItem {
   url: string
   /** The author's login. */
   author: string
+  /** The head commit's SHA, as seen at the refresh. */
+  headSha: string
   turn: Turn
   /** Its Readiness (My pull request) or Review state (Review request). */
   label: string
@@ -22,6 +24,8 @@ export interface PullRequestItem {
   ageDays: number
   /** Older than the stale threshold, at the refresh. */
   isStale: boolean
+  /** True for a Review request; absent for a My pull request. */
+  isReviewRequest?: true
 }
 
 /** Why the last refresh failed. */
@@ -65,6 +69,32 @@ export interface SnapshotCache {
   failures: number
 }
 
+/** The analyses Claude runs on demand: the Review analysis of a Review request. */
+export type AnalysisKind = 'review'
+
+/**
+ * An analysis's result, kept in `$.store` under `owner/repo#number@headSha` (see `analysisKey`),
+ * shared by the person's sessions.
+ */
+export interface Analysis {
+  kind: AnalysisKind
+  /** The head commit it read. */
+  headSha: string
+  /** The subagent's answer. */
+  text: string
+  /** When it finished, in `$.clock.now()` milliseconds. */
+  analysedAt: number
+}
+
+/** An analysis this session started and has not heard back from. */
+export interface RunningAnalysis {
+  kind: AnalysisKind
+  /** The head commit it reads. */
+  headSha: string
+  /** The subagent's id, which its `turn.complete` carries; absent when whoever started it gave none. */
+  agentId?: string
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'pr-master': {
@@ -84,6 +114,10 @@ declare module 'claude-code' {
       focused: string | null
       /** Why the last pull request action (open, copy) failed, shown on the refresh line; null when it did not or the person pressed on since. */
       actionProblem: string | null
+      /** The latest analysis of each pull request, by `owner/repo#number`, as read from `$.store`. */
+      analyses: Record<string, Analysis>
+      /** The analyses running in this session, by `owner/repo#number`: at most one per pull request. */
+      analysing: Record<string, RunningAnalysis>
     }
   }
 }
