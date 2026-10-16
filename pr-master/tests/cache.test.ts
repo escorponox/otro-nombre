@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import type { PullRequestItem, SnapshotCache } from '../types'
+import type { MergedPullRequestItem, PullRequestItem, SnapshotCache } from '../types'
 import { CACHE_KEY, MY_PULL_REQUESTS_QUERY, NOW, SURFACES, exceptReviewRequests, github, paneMount, pullRequestNode, runPrs, startSession, world } from './world'
 
 const SECOND = 1000
@@ -88,5 +88,27 @@ test('when another session writes the cache during a fetch, the last write wins 
   expect(cached.snapshot.mine.map(item => item.id)).toEqual(['PR_1'])
   expect(await ui.find({ key: 'item:PR_1' })).toBeDefined()
   expect(await ui.find({ key: 'item:PR_9' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a Merged pull request cached before ages were kept shows no age rather than "undefined"', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  const legacyMerged = {
+    id: 'PR_7', number: 7, repo: 'acme/api', title: 'Cached merged', url: 'https://github.com/acme/api/pull/7',
+    shipment: { ci: 'arrived', release: 'unknown', stg: 'unknown', prod: 'unknown', tag: null },
+  } as unknown as MergedPullRequestItem
+  const cache = cacheOf(NOW - 10 * SECOND)
+  cache.snapshot.merged = [legacyMerged]
+  world(on, { store: { [CACHE_KEY]: cache } })
+  github(on)
+  await startSession($)
+  await runPrs($)
+  await clock.settle()
+  const ui = await $.ui.mount(paneMount('terminal'))
+  await ui.press({ key: 'tab:merged' })
+
+  const item = await ui.find({ key: 'item:PR_7' })
+  expect(item).toBeDefined()
+  expect(JSON.stringify(await ui.drawn())).not.toContain('undefined')
   await ui.unmount()
 })

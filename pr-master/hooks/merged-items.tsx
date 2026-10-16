@@ -28,7 +28,7 @@ export interface MergedItemLook {
  */
 export function mergedPullRequestItem({ Box, Text, Button }: Elements, item: MergedPullRequestItem, { isFocused = false }: MergedItemLook) {
   const { shipment } = item
-  const ref = [shortRefOf(item), mergedAgo(item.mergedDays), ...(shipment.tag ? [shipment.tag] : [])].join(' · ')
+  const ref = [shortRefOf(item), ...mergedAgo(item.mergedDays), ...(shipment.tag ? [shipment.tag] : [])].join(' · ')
   return (
     <Box key={`item:${item.id}`} flexDirection="row" flexShrink={0}>
       <Box width={BULLET_COLUMNS} flexShrink={0}>
@@ -57,9 +57,13 @@ export function mergedPullRequestItem({ Box, Text, Button }: Elements, item: Mer
   )
 }
 
-/** How long ago a pull request merged `days` whole days ago was merged. */
-function mergedAgo(days: number): string {
-  return days === 0 ? 'merged today' : `merged ${days}d ago`
+/**
+ * How long ago a pull request merged `days` whole days ago was merged; nothing when a cache
+ * written before ages were kept has no `days` yet (the next refresh fills it in).
+ */
+function mergedAgo(days: number | undefined): string[] {
+  if (days === undefined) return []
+  return [days === 0 ? 'merged today' : `merged ${days}d ago`]
 }
 
 /** The columns of the indent under the title. */
