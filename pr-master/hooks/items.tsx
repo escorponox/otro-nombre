@@ -79,6 +79,13 @@ const ACTIONS: readonly Action[] = [
     appliesTo: (item, tab) => tab === 'mine',
     write: { confirm: 'Confirm close?', running: 'Closing…', done: 'Closed', failed: "Couldn't close" },
   },
+  {
+    kind: 'approve',
+    label: 'Approve',
+    hotkey: 'p',
+    appliesTo: (item, tab) => tab === 'review',
+    write: { confirm: 'Confirm approve?', running: 'Approving…', done: 'Approved', failed: "Couldn't approve" },
+  },
 ]
 
 /** The columns a terminal Button takes beyond its label: it draws `[ label ]`. */
