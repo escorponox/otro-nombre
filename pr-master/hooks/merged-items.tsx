@@ -17,18 +17,12 @@ const STEPS: readonly { step: keyof Omit<Shipment, 'tag'>; name: string }[] = [
 /** The elements an item is drawn with, from `$.ui.resolve(e)`. */
 type Elements = Pick<ElementTable, 'Box' | 'Text' | 'Button'>
 
-/** What pressing a Merged pull request's parts does; the pane supplies them, since `$` never crosses an import. */
-export interface MergedItemHandlers {
-  /** Pressing its title. */
-  onOpen: (item: MergedPullRequestItem) => unknown
-}
-
 /**
  * A Merged pull request as a list item: a `▸` bullet, the title, and indented under it the four
  * Shipment dots with their names and the ref (with the release tag once one contains it).
  * `flexShrink` 0: an item never squeezes inside the clipping list.
  */
-export function mergedPullRequestItem({ Box, Text, Button }: Elements, item: MergedPullRequestItem, handlers: MergedItemHandlers) {
+export function mergedPullRequestItem({ Box, Text, Button }: Elements, item: MergedPullRequestItem) {
   const { shipment } = item
   const ref = `#${item.number} ${repoName(item.repo)}${shipment.tag ? ` · ${shipment.tag}` : ''}`
   return (
@@ -37,7 +31,8 @@ export function mergedPullRequestItem({ Box, Text, Button }: Elements, item: Mer
         <Text color="suggestion">▸</Text>
       </Box>
       <Box flexDirection="column" flexShrink={1}>
-        <Button key={`pr:${item.id}`} plain onPress={() => handlers.onOpen(item)}>
+        {/* `actions.ts` answers the press. */}
+        <Button key={`pr:${item.id}`} plain onPress={() => undefined}>
           <Text bold>{item.title}</Text>
         </Button>
         <Box flexDirection="column" paddingLeft={INDENT_COLUMNS}>

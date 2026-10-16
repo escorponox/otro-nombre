@@ -5,9 +5,8 @@ import type { ActionProgress, Analysis, MergedPullRequestItem, PullRequestItem, 
 import { analysisRef } from './domain/analysis'
 import { clampOffset, offsetShowing, scrolledOffset } from './domain/list-window'
 import { TURN_COLOUR, itemRows, pullRequestItem, wrappedRows } from './items'
-import type { ItemAnalysis, ItemHandlers } from './items'
+import type { ItemAnalysis } from './items'
 import { SHIPMENT_COLOUR, mergedItemRows, mergedPullRequestItem } from './merged-items'
-import type { MergedItemHandlers } from './merged-items'
 import { EMPTY_SNAPSHOT } from './snapshot'
 
 export const PANE_ID = 'pr-master'
@@ -156,10 +155,10 @@ export function registerPane(on: On) {
           {items.length === 0 ? (
             <Text dimColor>No pull requests here.</Text>
           ) : shown === 'merged' ? (
-            shot.merged.slice(offset).map(item => mergedPullRequestItem({ Box, Text, Button }, item, MERGED_ITEM_HANDLERS))
+            shot.merged.slice(offset).map(item => mergedPullRequestItem({ Box, Text, Button }, item))
           ) : (
             openListOf(shot, shown).slice(offset).map(item =>
-              pullRequestItem({ Box, Text, Button }, item, ITEM_HANDLERS, {
+              pullRequestItem({ Box, Text, Button }, item, {
                 tab: shown,
                 isFocused: item.id === focusedId,
                 showAuthor: shown === 'review',
@@ -251,10 +250,6 @@ function listRows(body: { rows: number; columns: number }, isLegendShown: boolea
   const fixed = HEADER_ROWS + GAP_ROWS + (isLegendShown ? LEGEND_ROWS + GAP_ROWS : 0) + TABS_ROWS + teamRows
   return body.rows - fixed - GAP_ROWS - GAP_ROWS - wrappedRows(footer, body.columns)
 }
-
-// actions.ts answers the presses on an item's Buttons: it hooks `ui.press`.
-const ITEM_HANDLERS: ItemHandlers = { onOpen: () => undefined }
-const MERGED_ITEM_HANDLERS: MergedItemHandlers = { onOpen: () => undefined }
 
 /** The pull requests a tab lists. */
 function listOf(shot: Snapshot, id: Tab): readonly (PullRequestItem | MergedPullRequestItem)[] {

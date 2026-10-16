@@ -9,12 +9,6 @@ export const TURN_COLOUR: Record<Turn, string> = { mine: 'error', theirs: 'warni
 /** The elements an item is drawn with, from `$.ui.resolve(e)`. */
 type Elements = Pick<ElementTable, 'Box' | 'Text' | 'Button'>
 
-/** What pressing an item's parts does; the pane supplies them, since `$` never crosses an import. */
-export interface ItemHandlers {
-  /** Pressing `#number repo`. */
-  onOpen: (item: PullRequestItem) => unknown
-}
-
 /** How an item is drawn besides its pull request. */
 export interface ItemLook {
   /** The tab it is listed in: which actions apply depends on it. */
@@ -116,7 +110,7 @@ const BULLET_COLUMNS = 2
  * squeezes inside the clipping list. The pull request holding the focus has its `#number repo` drawn
  * inverse, and only its actions carry hotkeys.
  */
-export function pullRequestItem({ Box, Text, Button }: Elements, item: PullRequestItem, handlers: ItemHandlers, look: ItemLook) {
+export function pullRequestItem({ Box, Text, Button }: Elements, item: PullRequestItem, look: ItemLook) {
   const { isFocused = false, showAuthor = false, analysis = {} } = look
   return (
     <Box key={`item:${item.id}`} flexDirection="row" flexShrink={0}>
@@ -125,8 +119,8 @@ export function pullRequestItem({ Box, Text, Button }: Elements, item: PullReque
       </Box>
       <Box flexDirection="column" flexShrink={1}>
         <Box flexDirection="row" flexWrap="wrap">
-          {/* No hotkey: a plain Button draws its hotkey as a visible prefix. */}
-          <Button key={`pr:${item.id}`} plain onPress={() => handlers.onOpen(item)}>
+          {/* No hotkey: a plain Button draws its hotkey as a visible prefix. `actions.ts` answers the press. */}
+          <Button key={`pr:${item.id}`} plain onPress={() => undefined}>
             <Text bold inverse={isFocused}>{`#${item.number} ${repoName(item.repo)}`}</Text>
           </Button>
           <Text dimColor>{' · '}</Text>
