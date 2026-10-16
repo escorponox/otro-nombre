@@ -20,6 +20,8 @@ export interface ItemLook {
   tab: Tab
   /** It holds the focus: its `#number repo` is drawn inverse and its actions carry hotkeys. */
   isFocused?: boolean
+  /** A Review request also names its author, after the label. */
+  showAuthor?: boolean
   /** The key of the write action Button waiting for its confirming press, wherever it is. */
   armed?: string | null
   /** Its last write action, under way or ended. */
@@ -93,7 +95,7 @@ const BULLET_COLUMNS = 2
  * inverse, and only its actions carry hotkeys.
  */
 export function pullRequestItem({ Box, Text, Button }: Elements, item: PullRequestItem, handlers: ItemHandlers, look: ItemLook) {
-  const { isFocused = false } = look
+  const { isFocused = false, showAuthor = false } = look
   return (
     <Box key={`item:${item.id}`} flexDirection="row" flexShrink={0}>
       <Box width={BULLET_COLUMNS} flexShrink={0}>
@@ -106,7 +108,7 @@ export function pullRequestItem({ Box, Text, Button }: Elements, item: PullReque
             <Text bold inverse={isFocused}>{`#${item.number} ${repoName(item.repo)}`}</Text>
           </Button>
           <Text dimColor>{' · '}</Text>
-          <Text dimColor>{`${item.label} · ${item.ageDays}d`}</Text>
+          <Text dimColor>{meta(item, showAuthor)}</Text>
           {item.isStale && <Text color="warning">{' · stale'}</Text>}
         </Box>
         <Text>{item.title}</Text>
@@ -172,7 +174,7 @@ function progressText(progress: ActionProgress | undefined): string | undefined 
  * view counts on it: keep it in step with the drawing.
  */
 export function itemRows(item: PullRequestItem, columns: number, look: ItemLook): number {
-  const firstLine = `#${item.number} ${repoName(item.repo)} · ${item.label} · ${item.ageDays}d · stale`
+  const firstLine = `#${item.number} ${repoName(item.repo)} · ${meta(item, look.showAuthor ?? false)} · stale`
   const width = columns - BULLET_COLUMNS
   return wrappedRows(firstLine, width) + wrappedRows(item.title, width) + actionRowRows(item, width, look)
 }
@@ -204,6 +206,12 @@ function actionRowRows(item: PullRequestItem, columns: number, look: ItemLook): 
 /** The rows `text` takes wrapped at `columns`; at least one. */
 export function wrappedRows(text: string, columns: number): number {
   return Math.max(1, Math.ceil(text.length / Math.max(1, columns)))
+}
+
+/** The first line after `#number repo`: the label, the author when shown, and the age. */
+function meta(item: PullRequestItem, showAuthor: boolean): string {
+  const byAuthor = showAuthor ? ` · by ${item.author}` : ''
+  return `${item.label}${byAuthor} · ${item.ageDays}d`
 }
 
 /** `owner/name` -> `name`. */

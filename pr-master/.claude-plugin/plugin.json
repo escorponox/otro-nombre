@@ -12,6 +12,20 @@
       "options": ["off", "2w", "1m", "3m", "6m"],
       "default": "1m"
     },
+    "reviewWindow": {
+      "type": "string",
+      "title": "Review window",
+      "description": "List Review requests opened within this window: off (no limit), 1w (one week), 2w (two weeks) or 1m (one month)",
+      "options": ["off", "1w", "2w", "1m"],
+      "default": "2w"
+    },
+    "mergedWindow": {
+      "type": "string",
+      "title": "Merged window",
+      "description": "List your pull requests merged within this window in the Merged tab: off, 1d (one day), 3d (three days) or 1w (one week)",
+      "options": ["off", "1d", "3d", "1w"],
+      "default": "1w"
+    },
     "hiddenOrgs": {
       "type": "string",
       "multiple": true,

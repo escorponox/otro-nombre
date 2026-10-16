@@ -1,0 +1,93 @@
+import { expect, mock, test } from 'claude-code/testing'
+
+import type { PullRequestItem, SnapshotCache } from '../types'
+import { CACHE_KEY, MY_PULL_REQUESTS_QUERY, SURFACES, exceptReviewRequests, github, paneMount, pullRequestNode, runPrs, startSession, world } from './world'
+
+const NOW = Date.parse('2026-10-16T12:00:00Z')
+const SECOND = 1000
+
+/** A My pull request as another session cached it. */
+function cachedItem(n: number): PullRequestItem {
+  return { id: `PR_${n}`, number: n, repo: 'acme/api', title: `Cached ${n}`, url: `https://github.com/acme/api/pull/${n}`, author: 'me', turn: 'done', label: 'Ready to merge', ageDays: 1, isStale: false, headSha: `sha${n}`, isBehind: false }
+}
+
+/** A cache another session wrote at `fetchedAt`. */
+function cacheOf(fetchedAt: number, ...numbers: number[]): SnapshotCache {
+  return { snapshot: { mine: numbers.map(cachedItem), review: [], teams: [], merged: [], updatedAt: fetchedAt, problem: null }, fetchedAt, failures: 0 }
+}
+
+for (const surface of SURFACES) {
+  test(`a fresh cache another session wrote is shown without fetching (${surface})`, async ($, on) => {
+    const clock = mock.clock(on, { now: NOW })
+    world(on, { store: { [CACHE_KEY]: cacheOf(NOW - 10 * SECOND, 5) } })
+    const gh = github(on)
+    await startSession($)
+    await runPrs($)
+    await clock.settle()
+    const ui = await $.ui.mount(paneMount(surface))
+
+    expect(gh.requests).toEqual([])
+    expect((await ui.find({ key: 'tab:mine' }))?.text).toBe('Mine 1')
+    expect(await ui.find({ key: 'item:PR_5' })).toBeDefined()
+    await ui.unmount()
+  })
+}
+
+test('opening the panel on a cache older than 60 s fetches at once', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  world(on, { store: { [CACHE_KEY]: cacheOf(NOW - 61 * SECOND, 5) } })
+  const gh = github(on)
+  await startSession($)
+  await clock.settle()
+  expect(exceptReviewRequests(gh.requests)).toHaveLength(0)
+
+  await runPrs($)
+  await clock.settle()
+  expect(exceptReviewRequests(gh.requests)).toHaveLength(1)
+})
+
+test('opening the panel on a cache younger than 60 s does not fetch', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  world(on, { store: { [CACHE_KEY]: cacheOf(NOW - 59 * SECOND, 5) } })
+  const gh = github(on)
+  await startSession($)
+  await runPrs($)
+  await clock.settle()
+  expect(exceptReviewRequests(gh.requests)).toHaveLength(0)
+})
+
+test('a newer cache another session writes later is shown at the next poll, without fetching', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  const w = world(on, { store: { [CACHE_KEY]: cacheOf(NOW - 10 * SECOND, 5) } })
+  const gh = github(on)
+  await startSession($)
+  await clock.settle()
+  expect(w.statuses.at(-1)).toBe('● 1 ready')
+
+  w.store.set(CACHE_KEY, cacheOf(NOW + 5 * SECOND, 5, 6))
+  await clock.advance(15 * SECOND)
+  const ui = await $.ui.mount(paneMount('terminal'))
+  expect(gh.requests).toEqual([])
+  expect((await ui.find({ key: 'tab:mine' }))?.text).toBe('Mine 2')
+  expect(w.statuses.at(-1)).toBe('● 2 ready')
+  await ui.unmount()
+})
+
+test('when another session writes the cache during a fetch, the last write wins and nothing breaks', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  const w = world(on)
+  const gh = github(on)
+  gh.searches[MY_PULL_REQUESTS_QUERY] = [pullRequestNode(1)]
+  gh.whileInFlight = () => w.store.set(CACHE_KEY, cacheOf(NOW, 9))
+  await startSession($)
+  await runPrs($)
+  await clock.settle()
+  const ui = await $.ui.mount(paneMount('terminal'))
+
+  expect(exceptReviewRequests(gh.requests)).toHaveLength(1)
+  const cached = w.store.get(CACHE_KEY) as SnapshotCache
+  expect(cached.snapshot.mine.map(item => item.id)).toEqual(['PR_1'])
+  expect(await ui.find({ key: 'item:PR_1' })).toBeDefined()
+  expect(await ui.find({ key: 'item:PR_9' })).toBeUndefined()
+  await ui.unmount()
+})

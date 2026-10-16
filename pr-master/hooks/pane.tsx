@@ -1,10 +1,12 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On } from 'claude-code'
 
-import type { ActionProgress, Snapshot, Tab } from '../types'
+import type { ActionProgress, MergedPullRequestItem, PullRequestItem, Snapshot, Tab, TeamSwitch } from '../types'
 import { clampOffset, offsetShowing, scrolledOffset } from './domain/list-window'
 import { TURN_COLOUR, itemRows, pullRequestItem, wrappedRows } from './items'
 import type { ItemHandlers } from './items'
+import { SHIPMENT_COLOUR, mergedItemRows, mergedPullRequestItem } from './merged-items'
+import type { MergedItemHandlers } from './merged-items'
 import { EMPTY_SNAPSHOT } from './snapshot'
 
 export const PANE_ID = 'pr-master'
@@ -28,9 +30,6 @@ const progress = atom({ plugin: 'pr-master', key: 'progress' } as const, {} as R
  * `$.state`, so the scroll into view reads it here; a reload forgets it until the next draw.
  */
 let lastBody = { rows: 40, columns: 60 }
-
-/** The Shipment dot colours, as theme keys. */
-const SHIPMENT_COLOUR = { arrived: 'success', running: 'warning', failed: 'error', unknown: 'inactive' } as const
 
 const TURN_WORDS = { mine: 'Mine', theirs: 'Theirs', done: 'Done', parked: 'Parked' } as const
 
@@ -125,6 +124,19 @@ export function registerPane(on: On) {
       </Box>
     )
 
+    // The Review tab's team switches; refresh.ts answers their presses (it hooks `ui.press` on `team:` keys).
+    // Buttons apart by a drawn space, not `gap`, which leaves stale cells.
+    const teamSwitches = (
+      <Box key="teams" flexDirection="row" flexWrap="wrap">
+        {shot.teams.flatMap((team, index) => [
+          ...(index > 0 ? [<Text key={`teams:space:${team.slug}`}> </Text>] : []),
+          <Button key={`team:${team.slug}`} variant={team.isOn ? 'primary' : undefined} onPress={() => undefined}>
+            {teamLabel(team)}
+          </Button>,
+        ])}
+      </Box>
+    )
+
     // Header, legend and tabs stay put; only the list box under them grows and clips.
     return (
       <Box flexDirection="column" width={e.props.bodyColumns} height={e.props.scroll.bodyRows} gap={1}>
@@ -132,16 +144,20 @@ export function registerPane(on: On) {
           {header}
           {isLegendShown && legendBox}
           {tabs}
+          {shown === 'review' && shot.teams.length > 0 && teamSwitches}
         </Box>
         <Box key="list" flexDirection="column" flexGrow={1} flexShrink={1} overflow="hidden" gap={1}>
           {offset > 0 && <Text dimColor>{`↑ ${offset} more above`}</Text>}
           {items.length === 0 ? (
             <Text dimColor>No pull requests here.</Text>
+          ) : shown === 'merged' ? (
+            shot.merged.slice(offset).map(item => mergedPullRequestItem({ Box, Text, Button }, item, MERGED_ITEM_HANDLERS))
           ) : (
-            items.slice(offset).map(item =>
+            openListOf(shot, shown).slice(offset).map(item =>
               pullRequestItem({ Box, Text, Button }, item, ITEM_HANDLERS, {
                 tab: shown,
                 isFocused: item.id === focusedId,
+                showAuthor: shown === 'review',
                 armed: armedElement,
                 progress: progressById[item.id],
               }),
@@ -186,8 +202,13 @@ function registerListScroll(on: On) {
     await update($, focused, () => items[index]?.id ?? null)
     if (index >= 0) {
       const progressById = await read($, progress)
-      const heights = items.map(item => itemRows(item, lastBody.columns, { tab: shown, progress: progressById[item.id] }))
-      const rows = listRows(lastBody, isLegendShown, footerLine(shot, await read($, actionProblem)))
+      const heights =
+        shown === 'merged'
+          ? shot.merged.map(item => mergedItemRows(item, lastBody.columns))
+          : openListOf(shot, shown).map(item =>
+              itemRows(item, lastBody.columns, { tab: shown, showAuthor: shown === 'review', progress: progressById[item.id] }),
+            )
+      const rows = listRows(lastBody, isLegendShown, footerLine(shot, await read($, actionProblem)), teamSwitchesLine(shot, shown))
       await update($, listOffset, offset => offsetShowing(index, { offset: clampOffset(offset, items.length), heights, rows }))
     }
     return next(e)
@@ -203,20 +224,37 @@ const LEGEND_ROWS = 6
 const GAP_ROWS = 1
 
 /**
- * The rows the list box gets in a body: what the fixed block (header, legend, tabs), the refresh
- * line and the blank lines between them leave.
+ * The rows the list box gets in a body: what the fixed block (header, legend, tabs, team switches),
+ * the refresh line and the blank lines between them leave.
  */
-function listRows(body: { rows: number; columns: number }, isLegendShown: boolean, footer: string): number {
-  const fixed = HEADER_ROWS + GAP_ROWS + (isLegendShown ? LEGEND_ROWS + GAP_ROWS : 0) + TABS_ROWS
+function listRows(body: { rows: number; columns: number }, isLegendShown: boolean, footer: string, teamSwitches: string): number {
+  const teamRows = teamSwitches === '' ? 0 : GAP_ROWS + wrappedRows(teamSwitches, body.columns)
+  const fixed = HEADER_ROWS + GAP_ROWS + (isLegendShown ? LEGEND_ROWS + GAP_ROWS : 0) + TABS_ROWS + teamRows
   return body.rows - fixed - GAP_ROWS - GAP_ROWS - wrappedRows(footer, body.columns)
 }
 
 // actions.ts answers the presses on an item's Buttons: it hooks `ui.press`.
 const ITEM_HANDLERS: ItemHandlers = { onOpen: () => undefined }
+const MERGED_ITEM_HANDLERS: MergedItemHandlers = { onOpen: () => undefined }
 
-/** The pull requests a tab lists. Review requests and Merged pull requests are not fetched yet. */
-function listOf(shot: Snapshot, id: Tab) {
-  return id === 'mine' ? shot.mine : []
+/** The pull requests a tab lists. */
+function listOf(shot: Snapshot, id: Tab): readonly (PullRequestItem | MergedPullRequestItem)[] {
+  return id === 'merged' ? shot.merged : openListOf(shot, id)
+}
+
+/** The open pull requests a tab lists. */
+function openListOf(shot: Snapshot, id: Exclude<Tab, 'merged'>): readonly PullRequestItem[] {
+  return id === 'mine' ? shot.mine : shot.review
+}
+
+/** The team switches' line as drawn in the shown tab, to measure it; '' when not drawn. */
+function teamSwitchesLine(shot: Snapshot, shown: Tab): string {
+  return shown === 'review' ? shot.teams.map(teamLabel).join(' ') : ''
+}
+
+/** A team switch's label: whether it is on, the team and its count. */
+function teamLabel(team: TeamSwitch): string {
+  return `${team.isOn ? '[x]' : '[ ]'} ${team.slug} ${team.count}`
 }
 
 /** The refresh line: the last action's failure, if any, then how the last refresh went. */

@@ -37,19 +37,72 @@ export interface ActionProgress {
   problem?: string
 }
 
+/** How far a Merged pull request got in one step of its Shipment. */
+export type ShipmentStep = 'arrived' | 'running' | 'failed' | 'unknown'
+
+/** The path of a Merged pull request through CI, a release, staging and production. */
+export interface Shipment {
+  ci: ShipmentStep
+  release: ShipmentStep
+  stg: ShipmentStep
+  prod: ShipmentStep
+  /** The tag of the earliest release containing its merge commit; null when none does yet. */
+  tag: string | null
+}
+
+/** A Merged pull request as the panel draws it, its Shipment already derived. */
+export interface MergedPullRequestItem {
+  /** GitHub's node id. */
+  id: string
+  number: number
+  /** `owner/name`. */
+  repo: string
+  title: string
+  url: string
+  shipment: Shipment
+}
+
 /** Why the last refresh failed. */
 export type RefreshProblem =
   /** Neither `gh auth token` nor the GitHub token setting gave a token. */
   | { kind: 'no-token' }
   | { kind: 'failed'; reason: string }
 
+/** One of the person's teams in the Review tab: its switch and how many Review requests it has. */
+export interface TeamSwitch {
+  /** `org/team`. */
+  slug: string
+  /** Whether its Review requests are listed. */
+  isOn: boolean
+  /** Its Review requests as GitHub counts them, whether switched on or off. */
+  count: number
+}
+
 /** What the panel shows: the lists of the last successful refresh and how the last refresh went. */
 export interface Snapshot {
   mine: PullRequestItem[]
+  /** Review requests: of the teams switched on, and dismissed approvals. */
+  review: PullRequestItem[]
+  /** The person's teams, in the order the Review tab draws their switches. */
+  teams: TeamSwitch[]
+  /** Fetched apart from the open pull requests, so it may lag behind them. */
+  merged: MergedPullRequestItem[]
   /** When the last successful refresh finished, in `$.clock.now()` milliseconds; null before the first. */
   updatedAt: number | null
   /** Why the last refresh failed; null when it succeeded. The lists are then the last successful ones. */
   problem: RefreshProblem | null
+}
+
+/**
+ * The snapshot cache in `$.store`, shared by the person's sessions; last writer wins.
+ * A field a later version adds to `Snapshot` may be missing from a cache an older version wrote.
+ */
+export interface SnapshotCache {
+  snapshot: Snapshot
+  /** When the last fetch finished, successfully or not, in `$.clock.now()` milliseconds. */
+  fetchedAt: number
+  /** How many fetches have failed in a row since the last success. */
+  failures: number
 }
 
 declare module 'claude-code' {

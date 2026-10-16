@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { Mounted } from 'claude-code/testing'
 
-import { MY_PULL_REQUESTS_QUERY, SURFACES, github, paneMount, pullRequestNode, runPrs, startSession, world } from './world'
+import { MY_PULL_REQUESTS_QUERY, SURFACES, exceptReviewRequests, github, paneMount, pullRequestNode, runPrs, startSession, world } from './world'
 
 const NOW = Date.parse('2026-10-16T12:00:00Z')
 const MINUTE = 60_000
@@ -21,7 +21,7 @@ for (const surface of SURFACES) {
     gh.searches[MY_PULL_REQUESTS_QUERY] = [pullRequestNode(1), pullRequestNode(2)]
     expect((await ui.find({ key: 'refresh' }))?.props.hotkey).toBe('r')
     await ui.press({ key: 'refresh' })
-    expect(gh.requests).toHaveLength(2)
+    expect(exceptReviewRequests(gh.requests)).toHaveLength(2)
     expect((await ui.find({ key: 'tab:mine' }))?.text).toBe('Mine 2')
     expect(await ui.find({ key: 'item:PR_2' })).toBeDefined()
     await ui.unmount()
