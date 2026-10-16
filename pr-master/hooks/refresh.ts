@@ -1,10 +1,12 @@
 import { atom, update } from 'claude-code'
-import type { EngineInterface, On } from 'claude-code'
+import type { EngineInterface, On, Timer } from 'claude-code'
 
-import type { RefreshProblem } from '../types'
+import type { RefreshProblem, Snapshot, SnapshotCache } from '../types'
 import { toItem } from './domain/item'
+import { isDue } from './domain/polling'
 import type { OpenPullRequest } from './domain/pull-request'
 import { readiness } from './domain/readiness'
+import { statusRow } from './domain/status-row'
 import { visibleOnly } from './domain/visibility'
 import { GH_TOKEN_COMMANDS, NoToken, graphqlData, graphqlRequest } from './github/client'
 import { MY_PULL_REQUESTS, OPEN_PULL_REQUESTS_SEARCH, openPullRequestsOf } from './github/open-pull-requests'
@@ -12,9 +14,14 @@ import type { OpenPullRequestsSearchData } from './github/open-pull-requests'
 import { REVIEW_THREADS, needsThreads, withUnresolvedThreads } from './github/threads'
 import type { ReviewThreadsData } from './github/threads'
 import type { Options } from './options'
+import { PANE_ID } from './pane'
 import { EMPTY_SNAPSHOT } from './snapshot'
 
 const GH_TIMEOUT_MS = 10_000
+/** The `$.store` key of the snapshot cache shared by the person's sessions. */
+const CACHE_KEY = 'snapshot-cache'
+/** How often the session looks at the shared cache; `isDue` decides whether it fetches. */
+const POLL_TICK_MS = 15_000
 
 // The engine's scan only accepts atoms declared in the file that reads and writes them.
 const snapshot = atom({ plugin: 'pr-master', key: 'snapshot' } as const, EMPTY_SNAPSHOT)
@@ -25,15 +32,38 @@ const snapshot = atom({ plugin: 'pr-master', key: 'snapshot' } as const, EMPTY_S
  */
 let token: string | undefined
 
+/** This session's poller; a module reload drops it with the old module, a second `session.start` replaces it. */
+let poller: Timer | undefined
+/** The last poll this session queued; the next one waits for it. */
+let polling: Promise<void> = Promise.resolve()
+/** The fetch this session has in flight, joined by any refresh asked for meanwhile. */
+let fetching: Promise<void> | undefined
+/** The `fetchedAt` of the cache this session last showed, so an unchanged cache is not shown again. */
+let shownFetchedAt: number | undefined
+
 /**
- * Keeps the snapshot the pane draws: refreshes it when the pane opens and when the person
- * presses the pane's `refresh` Button. Everything that reaches GitHub through `$` lives in
- * this file, since the engine follows `$` only into functions declared in the same file.
+ * Keeps the snapshot the pane draws and the status row: a poller started with the session
+ * shows the shared cache and fetches when it is due (60 s with the pane open, five minutes
+ * closed, backed off after failures); opening the pane polls at once, and the pane's
+ * `refresh` Button fetches now. Everything that reaches GitHub through `$` lives in this file,
+ * since the engine follows `$` only into functions declared in the same file.
  */
 export function registerRefresh(on: On, options: Options) {
+  // Only a session a person sits at polls (a `-p` run has no panel and shows no status row).
+  // The matcher is also what lets this hook stand beside pane.tsx's own `session.start` hook.
+  // A settings change reloads the module, and a reload starts the session again: an open panel
+  // is refreshed at once so the new settings (the visibility filters among them) apply.
+  on('session.start', { isInteractive: true }, async ($, e, next) => {
+    const started = await next(e)
+    poller?.cancel()
+    poller = $.clock.every(POLL_TICK_MS, () => poll($, options))
+    void ((await isPaneOpen($)) ? refresh($, options) : poll($, options))
+    return started
+  })
+
   on('ui.open', { id: 'pr-master' }, async ($, e, next) => {
     const opened = await next(e)
-    void refresh($, options)
+    void poll($, options)
     return opened
   })
 
@@ -41,32 +71,76 @@ export function registerRefresh(on: On, options: Options) {
     void refresh($, options)
     return next(e)
   })
-
-  // A settings change reloads the module, and a reload starts the session again: refresh the
-  // open panel so the new settings (the visibility filters among them) apply at once. Only an
-  // interactive session has a panel; the matcher also keeps this hook apart from pane.tsx's.
-  on('session.start', { isInteractive: true }, async ($, e, next) => {
-    const started = await next(e)
-    const panes = await $.ui.panes()
-    if (panes.some(pane => pane.id === 'pr-master')) void refresh($, options)
-    return started
-  })
 }
 
 /**
- * Fetches from GitHub now, derives each pull request's Turn and label with the domain rules,
- * and replaces the snapshot. A failed refresh keeps the last lists and records the problem.
+ * Polls one at a time, so that a poll reads the cache the poll before it wrote: two polls at
+ * once (the session's first and the pane opening) would otherwise both find it due.
  */
-async function refresh($: EngineInterface, options: Options): Promise<void> {
+function poll($: EngineInterface, options: Options): Promise<void> {
+  polling = polling.catch(() => undefined).then(() => pollOnce($, options))
+  return polling
+}
+
+/**
+ * Fetches when the shared cache is due for this session (see `isDue`), and otherwise shows
+ * the cache, which another session may have written since.
+ */
+async function pollOnce($: EngineInterface, options: Options): Promise<void> {
+  const cache = await readCache($)
+  if (isDue(cache, await $.clock.now(), await isPaneOpen($))) return refresh($, options)
+  if (cache && cache.fetchedAt !== shownFetchedAt) await show($, cache)
+}
+
+/** Fetches now, or joins the fetch this session already has in flight. */
+function refresh($: EngineInterface, options: Options): Promise<void> {
+  fetching ??= fetchIntoCache($, options).finally(() => {
+    fetching = undefined
+  })
+  return fetching
+}
+
+/**
+ * Fetches from GitHub, derives each pull request's Turn and label with the domain rules, and
+ * writes the snapshot to the shared cache (last writer wins) and shows it. A failed fetch
+ * keeps the cached lists, records the problem and counts the failure for the back-off.
+ */
+async function fetchIntoCache($: EngineInterface, options: Options): Promise<void> {
+  let cache: SnapshotCache
   try {
     const data = await graphql<OpenPullRequestsSearchData>($, options, OPEN_PULL_REQUESTS_SEARCH, { q: MY_PULL_REQUESTS })
     const prs = await withThreads($, options, visibleOnly(openPullRequestsOf(data), options))
     const now = await $.clock.now()
     const mine = prs.map(pr => toItem(pr, readiness(pr), now, options.staleThreshold))
-    await update($, snapshot, () => ({ mine, updatedAt: now, problem: null }))
+    cache = { snapshot: { mine, updatedAt: now, problem: null }, fetchedAt: now, failures: 0 }
   } catch (error) {
-    await update($, snapshot, last => ({ ...last, problem: problemOf(error) }))
+    const last = await readCache($)
+    cache = {
+      snapshot: { ...(last?.snapshot ?? EMPTY_SNAPSHOT), problem: problemOf(error) },
+      fetchedAt: await $.clock.now(),
+      failures: (last?.failures ?? 0) + 1,
+    }
   }
+  await $.store.set(CACHE_KEY, cache)
+  await show($, cache)
+}
+
+/** Draws `cache`'s snapshot in the pane and its counts in the status row. */
+async function show($: EngineInterface, cache: SnapshotCache): Promise<void> {
+  shownFetchedAt = cache.fetchedAt
+  const shot: Snapshot = { ...EMPTY_SNAPSHOT, ...cache.snapshot }
+  await update($, snapshot, () => shot)
+  $.ui.status(statusRow(shot))
+}
+
+/** Whether this session's panel is open, as the engine's pane list says. */
+async function isPaneOpen($: EngineInterface): Promise<boolean> {
+  return (await $.ui.panes()).some(pane => pane.id === PANE_ID)
+}
+
+/** The shared cache, or undefined when no session has written one. */
+async function readCache($: EngineInterface): Promise<SnapshotCache | undefined> {
+  return ((await $.store.get(CACHE_KEY)) ?? undefined) as SnapshotCache | undefined
 }
 
 /** `prs` with their unresolved review threads, read by a second query for the ones that need them. */

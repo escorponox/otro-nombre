@@ -16,12 +16,16 @@ export function paneMount(surface: (typeof SURFACES)[number], bodyRows = 40) {
   } as const
 }
 
+/** The `$.store` key of the snapshot cache shared by the person's sessions. */
+export const CACHE_KEY = 'snapshot-cache'
+
 /**
  * The world beneath the mod, answered as Claude Code would: the session's panes
- * (`open` is the engine's pane record) and the commands the mod registers.
- * Call before the first call on `$`.
+ * (`open` is the engine's pane record), the commands the mod registers, the status
+ * row under the prompt, and `$.store`, shared with the person's other sessions
+ * (seed it with `store` to stand for what they wrote). Call before the first call on `$`.
  */
-export function world(on: On) {
+export function world(on: On, { store: entries = {} }: { store?: Record<string, unknown> } = {}) {
   const open = new Set<string>()
   /** Every `$.ui.open` the mod made, with its arguments. */
   const opens: { id: string; focus?: boolean }[] = []
@@ -31,6 +35,14 @@ export function world(on: On) {
   on('ui.panes', () => ({ value: [...open].map(id => ({ id, title: id, isShown: true, isFocused: false, isPlaced: true })) }))
   on('ui.open', ($, e) => { open.add(e.id); opens.push({ id: e.id, focus: e.focus }); return { value: { isPlaced: true } } })
   on('ui.close', ($, e) => { open.delete(e.id); return { value: undefined } })
+  /** Every `$.ui.status` the mod set, in order; `undefined` is a clear. */
+  const statuses: (string | undefined)[] = []
+  on('ui.status', ($, e) => { statuses.push(e.text); return { value: undefined } })
+  const store = new Map<string, unknown>(Object.entries(entries))
+  on('store.get', ($, e) => ({ value: store.get(e.key) }))
+  on('store.set', ($, e) => { store.set(e.key, e.value); return { value: undefined } })
+  on('store.delete', ($, e) => { store.delete(e.key); return { value: undefined } })
+  on('store.keys', () => ({ value: [...store.keys()] }))
   /** Every scroll of a window the engine itself made: one the mod let through. */
   const engineScrolls: number[] = []
   on('ui.scroll', ($, e) => { engineScrolls.push(e.offset); return {} })
@@ -42,7 +54,7 @@ export function world(on: On) {
     copies.push({ text: e.text, surface: e.surface })
     return { value: clipboard.copyFails ? { isCopied: false, reason: 'no-clipboard' } : { isCopied: true } }
   })
-  return { open, opens, commands, engineScrolls, copies, clipboard }
+  return { open, opens, commands, statuses, store, engineScrolls, copies, clipboard }
 }
 
 export const GRAPHQL_URL = 'https://api.github.com/graphql'
@@ -78,6 +90,8 @@ export function github(on: On) {
     failWith: undefined as number | undefined,
     requests: [] as GitHubRequest[],
     argvs: [] as string[][],
+    /** Called on each GraphQL request before it is answered: what happens elsewhere while the request is in flight. */
+    whileInFlight: undefined as (() => void) | undefined,
   }
   on('process.run', ($, e) => {
     fake.argvs.push([...e.argv])
@@ -106,6 +120,7 @@ export function github(on: On) {
       query: body.query ?? '',
       variables: body.variables ?? {},
     })
+    fake.whileInFlight?.()
     if (fake.failWith !== undefined) {
       return { value: { status: fake.failWith, ok: false, headers: {}, text: '{"message":"Server Error"}' } }
     }
