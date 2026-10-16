@@ -84,7 +84,7 @@ test('failures back off 60 → 120 → 300 s, and a success recovers', async ($,
   expect(gh.requests).toHaveLength(6)
 })
 
-test('a module reload keeps one poller, not two', async ($, on) => {
+test('after a module reload the open panel still fetches every 60 s', async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   world(on)
   const gh = github(on)
@@ -92,10 +92,13 @@ test('a module reload keeps one poller, not two', async ($, on) => {
   await startSession($)
   await runPrs($)
   await clock.settle()
+  // The reload refreshes the open panel at once, so changed settings apply.
   await startSession($)
   await clock.settle()
-  expect(gh.requests).toHaveLength(1)
-
-  await clock.advance(60 * SECOND)
   expect(gh.requests).toHaveLength(2)
+
+  await clock.advance(59 * SECOND)
+  expect(gh.requests).toHaveLength(2)
+  await clock.advance(1 * SECOND)
+  expect(gh.requests).toHaveLength(3)
 })

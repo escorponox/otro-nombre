@@ -4,11 +4,15 @@ import type { EngineInterface, On, Timer } from 'claude-code'
 import type { RefreshProblem, Snapshot, SnapshotCache } from '../types'
 import { toItem } from './domain/item'
 import { isDue } from './domain/polling'
+import type { OpenPullRequest } from './domain/pull-request'
 import { readiness } from './domain/readiness'
 import { statusRow } from './domain/status-row'
+import { visibleOnly } from './domain/visibility'
 import { GH_TOKEN_COMMANDS, NoToken, graphqlData, graphqlRequest } from './github/client'
 import { MY_PULL_REQUESTS, OPEN_PULL_REQUESTS_SEARCH, openPullRequestsOf } from './github/open-pull-requests'
 import type { OpenPullRequestsSearchData } from './github/open-pull-requests'
+import { REVIEW_THREADS, needsThreads, withUnresolvedThreads } from './github/threads'
+import type { ReviewThreadsData } from './github/threads'
 import type { Options } from './options'
 import { PANE_ID } from './pane'
 import { EMPTY_SNAPSHOT } from './snapshot'
@@ -30,6 +34,8 @@ let token: string | undefined
 
 /** This session's poller; a module reload drops it with the old module, a second `session.start` replaces it. */
 let poller: Timer | undefined
+/** The last poll this session queued; the next one waits for it. */
+let polling: Promise<void> = Promise.resolve()
 /** The fetch this session has in flight, joined by any refresh asked for meanwhile. */
 let fetching: Promise<void> | undefined
 /** The `fetchedAt` of the cache this session last showed, so an unchanged cache is not shown again. */
@@ -43,13 +49,15 @@ let shownFetchedAt: number | undefined
  * since the engine follows `$` only into functions declared in the same file.
  */
 export function registerRefresh(on: On, options: Options) {
-  // Only a session a person sits at polls (a `-p` run shows no status row). The matcher is also
-  // what lets this hook stand beside pane.tsx's own `session.start` hook.
+  // Only a session a person sits at polls (a `-p` run has no panel and shows no status row).
+  // The matcher is also what lets this hook stand beside pane.tsx's own `session.start` hook.
+  // A settings change reloads the module, and a reload starts the session again: an open panel
+  // is refreshed at once so the new settings (the visibility filters among them) apply.
   on('session.start', { isInteractive: true }, async ($, e, next) => {
     const started = await next(e)
     poller?.cancel()
     poller = $.clock.every(POLL_TICK_MS, () => poll($, options))
-    void poll($, options)
+    void ((await isPaneOpen($)) ? refresh($, options) : poll($, options))
     return started
   })
 
@@ -66,13 +74,21 @@ export function registerRefresh(on: On, options: Options) {
 }
 
 /**
+ * Polls one at a time, so that a poll reads the cache the poll before it wrote: two polls at
+ * once (the session's first and the pane opening) would otherwise both find it due.
+ */
+function poll($: EngineInterface, options: Options): Promise<void> {
+  polling = polling.catch(() => undefined).then(() => pollOnce($, options))
+  return polling
+}
+
+/**
  * Fetches when the shared cache is due for this session (see `isDue`), and otherwise shows
  * the cache, which another session may have written since.
  */
-async function poll($: EngineInterface, options: Options): Promise<void> {
+async function pollOnce($: EngineInterface, options: Options): Promise<void> {
   const cache = await readCache($)
-  const isPaneOpen = (await $.ui.panes()).some(pane => pane.id === PANE_ID)
-  if (isDue(cache, await $.clock.now(), isPaneOpen)) return refresh($, options)
+  if (isDue(cache, await $.clock.now(), await isPaneOpen($))) return refresh($, options)
   if (cache && cache.fetchedAt !== shownFetchedAt) await show($, cache)
 }
 
@@ -93,8 +109,9 @@ async function fetchIntoCache($: EngineInterface, options: Options): Promise<voi
   let cache: SnapshotCache
   try {
     const data = await graphql<OpenPullRequestsSearchData>($, options, OPEN_PULL_REQUESTS_SEARCH, { q: MY_PULL_REQUESTS })
+    const prs = await withThreads($, options, visibleOnly(openPullRequestsOf(data), options))
     const now = await $.clock.now()
-    const mine = openPullRequestsOf(data).map(pr => toItem(pr, readiness(pr), now, options.staleThreshold))
+    const mine = prs.map(pr => toItem(pr, readiness(pr), now, options.staleThreshold))
     cache = { snapshot: { mine, updatedAt: now, problem: null }, fetchedAt: now, failures: 0 }
   } catch (error) {
     const last = await readCache($)
@@ -116,9 +133,22 @@ async function show($: EngineInterface, cache: SnapshotCache): Promise<void> {
   $.ui.status(statusRow(shot))
 }
 
+/** Whether this session's panel is open, as the engine's pane list says. */
+async function isPaneOpen($: EngineInterface): Promise<boolean> {
+  return (await $.ui.panes()).some(pane => pane.id === PANE_ID)
+}
+
 /** The shared cache, or undefined when no session has written one. */
 async function readCache($: EngineInterface): Promise<SnapshotCache | undefined> {
   return ((await $.store.get(CACHE_KEY)) ?? undefined) as SnapshotCache | undefined
+}
+
+/** `prs` with their unresolved review threads, read by a second query for the ones that need them. */
+async function withThreads($: EngineInterface, options: Options, prs: OpenPullRequest[]): Promise<OpenPullRequest[]> {
+  const ids = prs.filter(needsThreads).map(pr => pr.id)
+  if (ids.length === 0) return prs
+  const data = await graphql<ReviewThreadsData>($, options, REVIEW_THREADS, { ids })
+  return withUnresolvedThreads(prs, data)
 }
 
 /** Runs a GraphQL query over the host's HTTP fetch; rejects with `NoToken` or `GitHubError`. */
