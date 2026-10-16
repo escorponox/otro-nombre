@@ -5,7 +5,7 @@ import { statusRow } from '../hooks/domain/status-row'
 import { EMPTY_SNAPSHOT } from '../hooks/snapshot'
 
 function item(n: number, turn: Turn): PullRequestItem {
-  return { id: `PR_${n}`, number: n, repo: 'acme/api', title: `PR ${n}`, url: '', author: 'me', headSha: 'cafe', turn, label: '', ageDays: 0, isStale: false }
+  return { id: `PR_${n}`, number: n, repo: 'acme/api', title: `PR ${n}`, url: '', author: 'me', turn, label: '', ageDays: 0, isStale: false, headSha: '', isBehind: false }
 }
 
 const withMine = (...turns: Turn[]) => ({ ...EMPTY_SNAPSHOT, mine: turns.map((turn, n) => item(n, turn)) })

@@ -7,8 +7,9 @@ import { readiness } from '../hooks/domain/readiness'
 function pr(facts: Partial<OpenPullRequest> = {}): OpenPullRequest {
   return {
     id: 'PR_1', number: 1, title: 'Title', url: 'https://github.com/acme/api/pull/1',
-    repository: 'acme/api', owner: 'acme', isPrivate: false, author: 'me', createdAt: '2026-10-01T00:00:00Z', headSha: 'cafe',
+    repository: 'acme/api', owner: 'acme', isPrivate: false, author: 'me', createdAt: '2026-10-01T00:00:00Z',
     isDraft: false, mergeable: 'MERGEABLE', mergeState: 'BLOCKED', reviewDecision: 'REVIEW_REQUIRED', checks: 'SUCCESS',
+    headSha: 'sha1',
     unresolvedThreadAuthors: [],
     ...facts,
   }

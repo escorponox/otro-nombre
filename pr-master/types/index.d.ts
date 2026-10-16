@@ -15,8 +15,6 @@ export interface PullRequestItem {
   url: string
   /** The author's login. */
   author: string
-  /** The head commit's SHA, as seen at the refresh. */
-  headSha: string
   turn: Turn
   /** Its Readiness (My pull request) or Review state (Review request). */
   label: string
@@ -24,8 +22,44 @@ export interface PullRequestItem {
   ageDays: number
   /** Older than the stale threshold, at the refresh. */
   isStale: boolean
-  /** True for a Review request; absent for a My pull request. */
-  isReviewRequest?: true
+  /** The head commit's SHA: what a write action pins to, the commit the person is looking at. */
+  headSha: string
+  /** Its branch is behind its base branch (merge state BEHIND). */
+  isBehind: boolean
+}
+
+/** A write action under way or ended on one pull request, drawn on its action row. */
+export interface ActionProgress {
+  /** The action's kind, as in its Button's key (`merge`, `update`, `close`). */
+  kind: string
+  phase: 'running' | 'done' | 'failed'
+  /** Why it failed; only when `phase` is `failed`. */
+  problem?: string
+}
+
+/** How far a Merged pull request got in one step of its Shipment. */
+export type ShipmentStep = 'arrived' | 'running' | 'failed' | 'unknown'
+
+/** The path of a Merged pull request through CI, a release, staging and production. */
+export interface Shipment {
+  ci: ShipmentStep
+  release: ShipmentStep
+  stg: ShipmentStep
+  prod: ShipmentStep
+  /** The tag of the earliest release containing its merge commit; null when none does yet. */
+  tag: string | null
+}
+
+/** A Merged pull request as the panel draws it, its Shipment already derived. */
+export interface MergedPullRequestItem {
+  /** GitHub's node id. */
+  id: string
+  number: number
+  /** `owner/name`. */
+  repo: string
+  title: string
+  url: string
+  shipment: Shipment
 }
 
 /** Why the last refresh failed. */
@@ -51,6 +85,8 @@ export interface Snapshot {
   review: PullRequestItem[]
   /** The person's teams, in the order the Review tab draws their switches. */
   teams: TeamSwitch[]
+  /** Fetched apart from the open pull requests, so it may lag behind them. */
+  merged: MergedPullRequestItem[]
   /** When the last successful refresh finished, in `$.clock.now()` milliseconds; null before the first. */
   updatedAt: number | null
   /** Why the last refresh failed; null when it succeeded. The lists are then the last successful ones. */
@@ -114,6 +150,13 @@ declare module 'claude-code' {
       focused: string | null
       /** Why the last pull request action (open, copy) failed, shown on the refresh line; null when it did not or the person pressed on since. */
       actionProblem: string | null
+      /**
+       * The write action Button waiting for its confirming press: its key and when it was armed.
+       * Disarmed after three seconds, by a focus move, or by any other write action's press.
+       */
+      armed: { element: string; at: number } | null
+      /** Each pull request's last write action, by node id, until another write action on it runs. */
+      progress: Record<string, ActionProgress>
       /** The latest analysis of each pull request, by `owner/repo#number`, as read from `$.store`. */
       analyses: Record<string, Analysis>
       /** The analyses running in this session, by `owner/repo#number`: at most one per pull request. */

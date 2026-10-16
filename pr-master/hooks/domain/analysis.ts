@@ -23,7 +23,7 @@ export function analysisKey(ref: string, headSha: string): string {
 
 /** A store key of an analysis, split into the pull request and the commit; undefined for any other key. */
 function parseAnalysisKey(key: string): { ref: string; headSha: string } | undefined {
-  const match = /^([^#@]+\/[^#@]+#\d+)@([0-9a-f]+)$/.exec(key)
+  const match = /^([^#@/]+\/[^#@/]+#\d+)@(\w+)$/.exec(key)
   return match?.[1] && match[2] ? { ref: match[1], headSha: match[2] } : undefined
 }
 

@@ -18,7 +18,7 @@ const item: PullRequestItem = {
   label: 'Needs review',
   ageDays: 2,
   isStale: false,
-  isReviewRequest: true,
+  isBehind: false,
 }
 
 const analysis = (headSha: string, analysedAt: number): Analysis => ({ kind: 'review', headSha, text: 'It caches.', analysedAt })

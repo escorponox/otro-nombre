@@ -8,12 +8,12 @@ const SECOND = 1000
 
 /** A My pull request as another session cached it. */
 function cachedItem(n: number): PullRequestItem {
-  return { id: `PR_${n}`, number: n, repo: 'acme/api', title: `Cached ${n}`, url: `https://github.com/acme/api/pull/${n}`, author: 'me', headSha: 'cafe', turn: 'done', label: 'Ready to merge', ageDays: 1, isStale: false }
+  return { id: `PR_${n}`, number: n, repo: 'acme/api', title: `Cached ${n}`, url: `https://github.com/acme/api/pull/${n}`, author: 'me', turn: 'done', label: 'Ready to merge', ageDays: 1, isStale: false, headSha: `sha${n}`, isBehind: false }
 }
 
 /** A cache another session wrote at `fetchedAt`. */
 function cacheOf(fetchedAt: number, ...numbers: number[]): SnapshotCache {
-  return { snapshot: { mine: numbers.map(cachedItem), review: [], teams: [], updatedAt: fetchedAt, problem: null }, fetchedAt, failures: 0 }
+  return { snapshot: { mine: numbers.map(cachedItem), review: [], teams: [], merged: [], updatedAt: fetchedAt, problem: null }, fetchedAt, failures: 0 }
 }
 
 for (const surface of SURFACES) {

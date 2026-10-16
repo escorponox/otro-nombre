@@ -7,9 +7,9 @@ import { reviewState } from '../hooks/domain/review-state'
 function pr(facts: Partial<ReviewRequest> = {}): ReviewRequest {
   return {
     id: 'PR_1', number: 1, title: 'Title', url: 'https://github.com/acme/api/pull/1',
-    repository: 'acme/api', owner: 'acme', isPrivate: false, author: 'ana', createdAt: '2026-10-01T00:00:00Z', headSha: 'cafe',
+    repository: 'acme/api', owner: 'acme', isPrivate: false, author: 'ana', createdAt: '2026-10-01T00:00:00Z',
     isDraft: false, mergeable: 'MERGEABLE', mergeState: 'BLOCKED', reviewDecision: 'REVIEW_REQUIRED', checks: 'SUCCESS',
-    unresolvedThreadAuthors: [],
+    headSha: 'sha1', unresolvedThreadAuthors: [],
     myReview: null, requestedTeams: [],
     ...facts,
   }

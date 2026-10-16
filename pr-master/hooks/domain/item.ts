@@ -12,10 +12,11 @@ export function toItem(pr: OpenPullRequest, verdict: Verdict, now: number, stale
     title: pr.title,
     url: pr.url,
     author: pr.author,
-    headSha: pr.headSha,
     turn: verdict.turn,
     label: verdict.label,
     ageDays: ageInDays(pr.createdAt, now),
     isStale: isStale(pr.createdAt, now, staleThreshold),
+    headSha: pr.headSha,
+    isBehind: pr.mergeState === 'BEHIND',
   }
 }

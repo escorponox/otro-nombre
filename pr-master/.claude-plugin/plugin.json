@@ -19,6 +19,13 @@
       "options": ["off", "1w", "2w", "1m"],
       "default": "2w"
     },
+    "mergedWindow": {
+      "type": "string",
+      "title": "Merged window",
+      "description": "List your pull requests merged within this window in the Merged tab: off, 1d (one day), 3d (three days) or 1w (one week)",
+      "options": ["off", "1d", "3d", "1w"],
+      "default": "3d"
+    },
     "hiddenOrgs": {
       "type": "string",
       "multiple": true,

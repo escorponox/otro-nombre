@@ -1,11 +1,13 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On } from 'claude-code'
 
-import type { Analysis, PullRequestItem, RunningAnalysis, Snapshot, Tab, TeamSwitch } from '../types'
+import type { ActionProgress, Analysis, MergedPullRequestItem, PullRequestItem, RunningAnalysis, Snapshot, Tab, TeamSwitch } from '../types'
 import { analysisRef } from './domain/analysis'
 import { clampOffset, offsetShowing, scrolledOffset } from './domain/list-window'
 import { TURN_COLOUR, itemRows, pullRequestItem, wrappedRows } from './items'
 import type { ItemAnalysis, ItemHandlers } from './items'
+import { SHIPMENT_COLOUR, mergedItemRows, mergedPullRequestItem } from './merged-items'
+import type { MergedItemHandlers } from './merged-items'
 import { EMPTY_SNAPSHOT } from './snapshot'
 
 export const PANE_ID = 'pr-master'
@@ -20,6 +22,9 @@ const listOffset = atom({ plugin: 'pr-master', key: 'listOffset' } as const, 0)
 const focused = atom({ plugin: 'pr-master', key: 'focused' } as const, null as string | null)
 /** Written by `actions.ts`. */
 const actionProblem = atom({ plugin: 'pr-master', key: 'actionProblem' } as const, null as string | null)
+/** Written by `refresh.ts`, which runs the write actions. */
+const armed = atom({ plugin: 'pr-master', key: 'armed' } as const, null as { element: string; at: number } | null)
+const progress = atom({ plugin: 'pr-master', key: 'progress' } as const, {} as Record<string, ActionProgress>)
 /** Written by `analyses.ts`. */
 const analyses = atom({ plugin: 'pr-master', key: 'analyses' } as const, {} as Record<string, Analysis>)
 const analysing = atom({ plugin: 'pr-master', key: 'analysing' } as const, {} as Record<string, RunningAnalysis>)
@@ -29,9 +34,6 @@ const analysing = atom({ plugin: 'pr-master', key: 'analysing' } as const, {} as
  * `$.state`, so the scroll into view reads it here; a reload forgets it until the next draw.
  */
 let lastBody = { rows: 40, columns: 60 }
-
-/** The Shipment dot colours, as theme keys. */
-const SHIPMENT_COLOUR = { arrived: 'success', running: 'warning', failed: 'error', unknown: 'inactive' } as const
 
 const TURN_WORDS = { mine: 'Mine', theirs: 'Theirs', done: 'Done', parked: 'Parked' } as const
 
@@ -68,6 +70,8 @@ export function registerPane(on: On) {
     const offset = clampOffset(await read($, listOffset), items.length)
     const focusedId = await read($, focused)
     const footer = footerLine(shot, await read($, actionProblem))
+    const armedElement = (await read($, armed))?.element ?? null
+    const progressById = await read($, progress)
     const analysisOf = await readAnalyses($)
     lastBody = { rows: e.props.scroll.bodyRows, columns: e.props.bodyColumns }
 
@@ -151,11 +155,16 @@ export function registerPane(on: On) {
           {offset > 0 && <Text dimColor>{`↑ ${offset} more above`}</Text>}
           {items.length === 0 ? (
             <Text dimColor>No pull requests here.</Text>
+          ) : shown === 'merged' ? (
+            shot.merged.slice(offset).map(item => mergedPullRequestItem({ Box, Text, Button }, item, MERGED_ITEM_HANDLERS))
           ) : (
-            items.slice(offset).map(item =>
+            openListOf(shot, shown).slice(offset).map(item =>
               pullRequestItem({ Box, Text, Button }, item, ITEM_HANDLERS, {
+                tab: shown,
                 isFocused: item.id === focusedId,
                 showAuthor: shown === 'review',
+                armed: armedElement,
+                progress: progressById[item.id],
                 analysis: analysisOf(item),
               }),
             )
@@ -205,8 +214,19 @@ function registerListScroll(on: On) {
     const index = items.findIndex(item => item.id === id)
     await update($, focused, () => items[index]?.id ?? null)
     if (index >= 0) {
+      const progressById = await read($, progress)
       const analysisOf = await readAnalyses($)
-      const heights = items.map(item => itemRows(item, lastBody.columns, shown === 'review', analysisOf(item)))
+      const heights =
+        shown === 'merged'
+          ? shot.merged.map(item => mergedItemRows(item, lastBody.columns))
+          : openListOf(shot, shown).map(item =>
+              itemRows(item, lastBody.columns, {
+                tab: shown,
+                showAuthor: shown === 'review',
+                progress: progressById[item.id],
+                analysis: analysisOf(item),
+              }),
+            )
       const rows = listRows(lastBody, isLegendShown, footerLine(shot, await read($, actionProblem)), teamSwitchesLine(shot, shown))
       await update($, listOffset, offset => offsetShowing(index, { offset: clampOffset(offset, items.length), heights, rows }))
     }
@@ -234,12 +254,16 @@ function listRows(body: { rows: number; columns: number }, isLegendShown: boolea
 
 // actions.ts answers the presses on an item's Buttons: it hooks `ui.press`.
 const ITEM_HANDLERS: ItemHandlers = { onOpen: () => undefined }
+const MERGED_ITEM_HANDLERS: MergedItemHandlers = { onOpen: () => undefined }
 
-/** The pull requests a tab lists. Merged pull requests are not fetched yet. */
-function listOf(shot: Snapshot, id: Tab) {
-  if (id === 'mine') return shot.mine
-  if (id === 'review') return shot.review
-  return []
+/** The pull requests a tab lists. */
+function listOf(shot: Snapshot, id: Tab): readonly (PullRequestItem | MergedPullRequestItem)[] {
+  return id === 'merged' ? shot.merged : openListOf(shot, id)
+}
+
+/** The open pull requests a tab lists. */
+function openListOf(shot: Snapshot, id: Exclude<Tab, 'merged'>): readonly PullRequestItem[] {
+  return id === 'mine' ? shot.mine : shot.review
 }
 
 /** The team switches' line as drawn in the shown tab, to measure it; '' when not drawn. */
