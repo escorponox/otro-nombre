@@ -39,8 +39,8 @@ let shownFetchedAt: number | undefined
  * Keeps the snapshot the pane draws and the status row: a poller started with the session
  * shows the shared cache and fetches when it is due (60 s with the pane open, five minutes
  * closed, backed off after failures); opening the pane polls at once, and the pane's
- * `refresh` Button fetches now. Everything that reaches GitHub through `$` lives in this file, since the
- * engine follows `$` only into functions declared in the same file.
+ * `refresh` Button fetches now. Everything that reaches GitHub through `$` lives in this file,
+ * since the engine follows `$` only into functions declared in the same file.
  */
 export function registerRefresh(on: On, options: Options) {
   // Only a session a person sits at polls (a `-p` run shows no status row). The matcher is also
