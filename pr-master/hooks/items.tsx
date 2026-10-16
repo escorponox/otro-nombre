@@ -100,6 +100,7 @@ const ACTIONS: readonly Action[] = [
   },
   // `analyses.ts` answers the analysis actions' presses.
   { kind: ANALYSIS_ACTION.review, label: ANALYSIS_NAME.review, hotkey: 'n', appliesTo: (item, tab) => tab === 'review' },
+  { kind: ANALYSIS_ACTION.unblock, label: ANALYSIS_NAME.unblock, hotkey: 'n', appliesTo: (item, tab) => tab === 'mine' },
 ]
 
 /** The columns a terminal Button takes beyond its label: it draws `[ label ]`. */
