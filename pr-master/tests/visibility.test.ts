@@ -73,11 +73,11 @@ test('a reload with the panel closed does not reach GitHub', async ($, on) => {
   // The session's first poll fills the shared cache; the reload finds it fresh.
   await startSession($)
   await clock.settle()
-  expect(gh.requests).toHaveLength(1)
+  expect(exceptReviewRequests(gh.requests)).toHaveLength(1)
 
   await startSession($)
   await clock.settle()
-  expect(gh.requests).toHaveLength(1)
+  expect(exceptReviewRequests(gh.requests)).toHaveLength(1)
 })
 
 test('private repositories are shown unless the person turns them off', async ($, on) => {

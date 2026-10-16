@@ -121,7 +121,7 @@ for (const surface of SURFACES) {
 
     await ui.press({ key: 'team:acme/platform' })
     await clock.settle()
-    expect(w.stored.get('teamsOff')).toEqual(['acme/platform'])
+    expect(w.store.get('teamsOff')).toEqual(['acme/platform'])
     expect(reviewSearches(gh.requests)).toContainEqual({ q: teamSearch('acme/platform'), first: 0 })
     expect((await ui.find({ key: 'team:acme/platform' }))?.text).toBe('[ ] acme/platform 2')
     expect((await ui.find({ key: 'tab:review' }))?.text).toBe('Review 1')
@@ -130,7 +130,7 @@ for (const surface of SURFACES) {
 
     await ui.press({ key: 'team:acme/platform' })
     await clock.settle()
-    expect(w.stored.get('teamsOff')).toEqual([])
+    expect(w.store.get('teamsOff')).toEqual([])
     expect((await ui.find({ key: 'tab:review' }))?.text).toBe('Review 3')
     await ui.unmount()
   })
@@ -141,7 +141,7 @@ test('the switches are shared across sessions, and a team joined later arrives s
   const w = world(on)
   const gh = github(on)
   // Another session switched acme/platform off before acme/infra was joined.
-  w.stored.set('teamsOff', ['acme/platform'])
+  w.store.set('teamsOff', ['acme/platform'])
   gh.teams = [{ slug: 'acme/platform', role: 'MEMBER' }, { slug: 'acme/infra', role: 'MEMBER' }]
   await startSession($)
   await runPrs($)
@@ -158,7 +158,7 @@ test('a dismissed approval asked only of a team switched off is not listed', asy
   const clock = mock.clock(on, { now: NOW })
   const w = world(on)
   const gh = github(on)
-  w.stored.set('teamsOff', ['acme/platform'])
+  w.store.set('teamsOff', ['acme/platform'])
   gh.teams = [{ slug: 'acme/platform', role: 'MEMBER' }, { slug: 'acme/infra', role: 'MEMBER' }]
   gh.searches[dismissedSearch()] = [
     pullRequestNode(61, { myReview: 'DISMISSED', requestedTeams: ['acme/platform'] }),

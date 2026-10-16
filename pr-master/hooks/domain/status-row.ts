@@ -10,6 +10,7 @@ interface StatusCount {
 const STATUS_COUNTS: readonly StatusCount[] = [
   { word: 'ready', count: shot => shot.mine.filter(item => item.turn === 'done').length },
   { word: 'need you', count: shot => shot.mine.filter(item => item.turn === 'mine').length },
+  { word: 'to review', count: shot => shot.review.filter(item => item.turn === 'mine').length },
 ]
 
 /**

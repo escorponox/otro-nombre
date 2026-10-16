@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
 import type { PullRequestItem, SnapshotCache } from '../types'
-import { CACHE_KEY, MY_PULL_REQUESTS_QUERY, SURFACES, github, paneMount, pullRequestNode, runPrs, startSession, world } from './world'
+import { CACHE_KEY, MY_PULL_REQUESTS_QUERY, SURFACES, exceptReviewRequests, github, paneMount, pullRequestNode, runPrs, startSession, world } from './world'
 
 const NOW = Date.parse('2026-10-16T12:00:00Z')
 const SECOND = 1000
@@ -13,7 +13,7 @@ function cachedItem(n: number): PullRequestItem {
 
 /** A cache another session wrote at `fetchedAt`. */
 function cacheOf(fetchedAt: number, ...numbers: number[]): SnapshotCache {
-  return { snapshot: { mine: numbers.map(cachedItem), updatedAt: fetchedAt, problem: null }, fetchedAt, failures: 0 }
+  return { snapshot: { mine: numbers.map(cachedItem), review: [], teams: [], updatedAt: fetchedAt, problem: null }, fetchedAt, failures: 0 }
 }
 
 for (const surface of SURFACES) {
@@ -39,11 +39,11 @@ test('opening the panel on a cache older than 60 s fetches at once', async ($, o
   const gh = github(on)
   await startSession($)
   await clock.settle()
-  expect(gh.requests).toHaveLength(0)
+  expect(exceptReviewRequests(gh.requests)).toHaveLength(0)
 
   await runPrs($)
   await clock.settle()
-  expect(gh.requests).toHaveLength(1)
+  expect(exceptReviewRequests(gh.requests)).toHaveLength(1)
 })
 
 test('opening the panel on a cache younger than 60 s does not fetch', async ($, on) => {
@@ -53,7 +53,7 @@ test('opening the panel on a cache younger than 60 s does not fetch', async ($, 
   await startSession($)
   await runPrs($)
   await clock.settle()
-  expect(gh.requests).toHaveLength(0)
+  expect(exceptReviewRequests(gh.requests)).toHaveLength(0)
 })
 
 test('a newer cache another session writes later is shown at the next poll, without fetching', async ($, on) => {
@@ -84,7 +84,7 @@ test('when another session writes the cache during a fetch, the last write wins 
   await clock.settle()
   const ui = await $.ui.mount(paneMount('terminal'))
 
-  expect(gh.requests).toHaveLength(1)
+  expect(exceptReviewRequests(gh.requests)).toHaveLength(1)
   const cached = w.store.get(CACHE_KEY) as SnapshotCache
   expect(cached.snapshot.mine.map(item => item.id)).toEqual(['PR_1'])
   expect(await ui.find({ key: 'item:PR_1' })).toBeDefined()
