@@ -91,6 +91,13 @@ const ACTIONS: readonly Action[] = [
     appliesTo: (item, tab) => tab === 'mine',
     write: { confirm: 'Confirm close?', running: 'Closing…', done: 'Closed', failed: "Couldn't close" },
   },
+  {
+    kind: 'approve',
+    label: 'Approve',
+    hotkey: 'p',
+    appliesTo: (item, tab) => tab === 'review',
+    write: { confirm: 'Confirm approve?', running: 'Approving…', done: 'Approved', failed: "Couldn't approve" },
+  },
   // `analyses.ts` answers the analysis actions' presses.
   { kind: ANALYSIS_ACTION.review, label: ANALYSIS_NAME.review, hotkey: 'n', appliesTo: (item, tab) => tab === 'review' },
 ]

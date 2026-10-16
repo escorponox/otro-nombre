@@ -20,6 +20,11 @@ const CLOSE = `mutation Close($id: ID!) {
   closePullRequest(input: { pullRequestId: $id }) { pullRequest { id } }
 }`
 
+/** Approve, pinned to the head commit the person saw: the approval is of exactly that commit. */
+const APPROVE = `mutation Approve($id: ID!, $headSha: GitObjectID!) {
+  addPullRequestReview(input: { pullRequestId: $id, event: APPROVE, commitOID: $headSha }) { pullRequestReview { id } }
+}`
+
 /**
  * The GitHub mutation of the write action `kind` on `item`, or undefined when `kind` is not a
  * write action. To add a write action, add its mutation here and its Button to `items.tsx`.
@@ -32,6 +37,8 @@ export function writeRequestOf(kind: string, item: PullRequestItem): WriteReques
       return { query: UPDATE_BRANCH, variables: { id: item.id } }
     case 'close':
       return { query: CLOSE, variables: { id: item.id } }
+    case 'approve':
+      return { query: APPROVE, variables: { id: item.id, headSha: item.headSha } }
     default:
       return undefined
   }
