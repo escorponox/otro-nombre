@@ -35,7 +35,14 @@ export function world(on: On) {
   const engineScrolls: number[] = []
   on('ui.scroll', ($, e) => { engineScrolls.push(e.offset); return {} })
   on('ui.focus', () => ({}))
-  return { open, opens, commands, engineScrolls }
+  /** Every `$.ui.copy` the mod made. `copyFails` makes the next copies reach no clipboard. */
+  const copies: { text: string; surface: string | undefined }[] = []
+  const clipboard = { copyFails: false }
+  on('ui.copy', ($, e) => {
+    copies.push({ text: e.text, surface: e.surface })
+    return { value: clipboard.copyFails ? { isCopied: false, reason: 'no-clipboard' } : { isCopied: true } }
+  })
+  return { open, opens, commands, engineScrolls, copies, clipboard }
 }
 
 export const GRAPHQL_URL = 'https://api.github.com/graphql'
@@ -65,6 +72,8 @@ export function github(on: On) {
     searches: { [MY_PULL_REQUESTS_QUERY]: [] } as Record<string, object[]>,
     /** The review threads of each pull request, by node id. */
     threads: {} as Record<string, object[]>,
+    /** What `open <url>` prints to stderr as it exits 1; undefined: it opens the browser. */
+    openFailure: undefined as string | undefined,
     /** When set, every GraphQL request answers this HTTP status. */
     failWith: undefined as number | undefined,
     requests: [] as GitHubRequest[],
@@ -72,6 +81,10 @@ export function github(on: On) {
   }
   on('process.run', ($, e) => {
     fake.argvs.push([...e.argv])
+    if (e.argv[0] === 'open') {
+      const exitCode = fake.openFailure === undefined ? 0 : 1
+      return { value: { exitCode, stdout: '', stderr: fake.openFailure ?? '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
     if (fake.ghToken === 'missing') throw new Error(`${e.argv[0]}: not found`)
     const isLoggedIn = fake.ghToken !== null
     return {

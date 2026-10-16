@@ -17,6 +17,8 @@ const legend = atom({ plugin: 'pr-master', key: 'legend' } as const, false)
 const snapshot = atom({ plugin: 'pr-master', key: 'snapshot' } as const, EMPTY_SNAPSHOT)
 const listOffset = atom({ plugin: 'pr-master', key: 'listOffset' } as const, 0)
 const focused = atom({ plugin: 'pr-master', key: 'focused' } as const, null as string | null)
+/** Written by `actions.ts`. */
+const actionProblem = atom({ plugin: 'pr-master', key: 'actionProblem' } as const, null as string | null)
 
 /**
  * The body the pane was last drawn in. `ui.focus` carries no size, and drawing may not write
@@ -61,6 +63,7 @@ export function registerPane(on: On) {
     const items = listOf(shot, shown)
     const offset = clampOffset(await read($, listOffset), items.length)
     const focusedId = await read($, focused)
+    const footer = footerLine(shot, await read($, actionProblem))
     lastBody = { rows: e.props.scroll.bodyRows, columns: e.props.bodyColumns }
 
     const header = (
@@ -134,7 +137,7 @@ export function registerPane(on: On) {
           )}
         </Box>
         <Box key="footer" flexShrink={0}>
-          <Text dimColor wrap="wrap">{refreshLine(shot)}</Text>
+          <Text dimColor wrap="wrap">{footer}</Text>
         </Box>
       </Box>
     )
@@ -170,7 +173,7 @@ function registerListScroll(on: On) {
     await update($, focused, () => items[index]?.id ?? null)
     if (index >= 0) {
       const heights = items.map(item => itemRows(item, lastBody.columns))
-      const rows = listRows(lastBody, isLegendShown, refreshLine(shot))
+      const rows = listRows(lastBody, isLegendShown, footerLine(shot, await read($, actionProblem)))
       await update($, listOffset, offset => offsetShowing(index, { offset: clampOffset(offset, items.length), heights, rows }))
     }
     return next(e)
@@ -194,12 +197,17 @@ function listRows(body: { rows: number; columns: number }, isLegendShown: boolea
   return body.rows - fixed - GAP_ROWS - GAP_ROWS - wrappedRows(footer, body.columns)
 }
 
-// Opening a pull request in the browser comes with the action row (ticket 10).
+// actions.ts answers the presses on an item's Buttons: it hooks `ui.press`.
 const ITEM_HANDLERS: ItemHandlers = { onOpen: () => undefined }
 
 /** The pull requests a tab lists. Review requests and Merged pull requests are not fetched yet. */
 function listOf(shot: Snapshot, id: Tab) {
   return id === 'mine' ? shot.mine : []
+}
+
+/** The refresh line: the last action's failure, if any, then how the last refresh went. */
+function footerLine(shot: Snapshot, problem: string | null): string {
+  return problem === null ? refreshLine(shot) : `${problem} · ${refreshLine(shot)}`
 }
 
 /** How the last refresh went: when it last succeeded, or why it failed. */

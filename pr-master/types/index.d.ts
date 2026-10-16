@@ -56,6 +56,8 @@ declare module 'claude-code' {
        * focus is on nothing of a pull request; a tab change clears it.
        */
       focused: string | null
+      /** Why the last pull request action (open, copy) failed, shown on the refresh line; null when it did not or the person pressed on since. */
+      actionProblem: string | null
     }
   }
 }
