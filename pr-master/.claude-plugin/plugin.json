@@ -39,6 +39,12 @@
       "description": "Show pull requests in private repositories",
       "default": true
     },
+    "alerts": {
+      "type": "boolean",
+      "title": "Alerts",
+      "description": "Raise an Alert, a toast in the session, when a pull request needs you, becomes Ready to merge, reaches production or fails CI after merging",
+      "default": true
+    },
     "githubToken": {
       "type": "string",
       "title": "GitHub token",

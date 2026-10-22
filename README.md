@@ -55,6 +55,19 @@ Other keys in the panel:
 
 Each pull request carries a coloured dot for its **Turn**: **Mine** (you act next), **Theirs** (CI, reviewers or the author), **Done** (nothing left to do) or **Parked** (a draft).
 
+### Alerts
+
+While the session is open, a toast tells you when one of your pull requests:
+
+- needs you: its **Turn** became **Mine**, a new Review request included;
+- became Ready to merge;
+- reached production;
+- failed CI after merging.
+
+Each toast says the pull request's number, its repository and what it became, for example `#123 api · Changes requested`, and stays ten seconds. More than three at once come as one toast, for example `5 Alerts · /prs`. Clicking a toast only closes it: open `/prs` to act on the pull request.
+
+The first time a session shows your pull requests it raises none for what already waits; from then on it raises one for each change, those since your sessions last fetched included. Every open session raises its own.
+
 ### Actions
 
 Move the focus to a pull request with Tab, the arrow keys or a click. The focused pull request's actions get hotkeys:
@@ -97,6 +110,7 @@ Set them on install, or later with `claude plugin configure pr-master@pr-master-
 | Merged window | `off`, `1d`, `3d`, `1w` | `3d` | Lists your pull requests merged within this window in the Merged tab |
 | Hidden organisations | logins | none | Organisations or users whose pull requests the panel never shows |
 | Show private repositories | yes / no | yes | Shows pull requests in private repositories |
+| Alerts | yes / no | yes | Raises a toast when a pull request needs you, becomes Ready to merge, reaches production or fails CI after merging |
 | GitHub token | token | none | Used only when `gh auth token` gives none |
 
 ## Development

@@ -1,5 +1,5 @@
 /** A pull request as far as its name reads it. */
-interface Named {
+export interface Named {
   number: number
   /** `owner/name`. */
   repo: string

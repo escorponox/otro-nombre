@@ -33,7 +33,7 @@ export const CACHE_KEY = 'snapshot-cache'
 /**
  * The world beneath the mod, answered as Claude Code would: the session's panes
  * (`open` is the engine's pane record), the commands the mod registers, the status
- * row under the prompt, and `$.store`, shared with the person's other sessions
+ * row under the prompt, the toasts, and `$.store`, shared with the person's other sessions
  * (seed it with `store` to stand for what they wrote). Call before the first call on `$`.
  */
 export function world(on: On, { store: entries = {} }: { store?: Record<string, unknown> } = {}) {
@@ -49,6 +49,9 @@ export function world(on: On, { store: entries = {} }: { store?: Record<string, 
   /** Every `$.ui.status` the mod set, in order; `undefined` is a clear. */
   const statuses: (string | undefined)[] = []
   on('ui.status', ($, e) => { statuses.push(e.text); return { value: undefined } })
+  /** Every `$.ui.toast` the mod raised, in order. */
+  const toasts: { text: string; timeoutMs?: number }[] = []
+  on('ui.toast', ($, e) => { toasts.push({ text: e.text, timeoutMs: e.timeoutMs }); return { value: undefined } })
   const store = new Map<string, unknown>(Object.entries(entries))
   on('store.get', ($, e) => ({ value: store.get(e.key) }))
   on('store.set', ($, e) => { store.set(e.key, e.value); return { value: undefined } })
@@ -83,7 +86,7 @@ export function world(on: On, { store: entries = {} }: { store?: Record<string, 
   /** Every prompt the mod submitted into the conversation. */
   const prompts: string[] = []
   on('prompt.submit', ($, e) => { prompts.push(e.text); return { text: e.text } })
-  return { open, opens, commands, statuses, store, engineScrolls, copies, clipboard, spawns, agents, prompts }
+  return { open, opens, commands, statuses, toasts, store, engineScrolls, copies, clipboard, spawns, agents, prompts }
 }
 
 export const GRAPHQL_URL = 'https://api.github.com/graphql'

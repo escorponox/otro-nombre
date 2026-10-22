@@ -10,6 +10,7 @@ import type {
   TeamSwitch,
   WriteActionKind,
 } from '../types'
+import { alertToasts, alertsBetween } from './domain/alerts'
 import { ancestryKey, ancestryToKeep, isSameAncestry, keptAncestryOf } from './domain/ancestry'
 import type { KeptAncestry } from './domain/ancestry'
 import { unlistedAnalysisKeys } from './domain/analysis'
@@ -100,6 +101,11 @@ let polling: Promise<void> = Promise.resolve()
 let fetching: Promise<void> | undefined
 /** The `fetchedAt` of the cache this session last showed, so an unchanged cache is not shown again. */
 let shownFetchedAt: number | undefined
+/**
+ * The snapshot this session last showed, which the next one is told apart from in Alerts; undefined
+ * before the first, which raises none. A reload drops it with the module.
+ */
+let shownSnapshot: Snapshot | undefined
 
 /** Disarms the armed write action once its three seconds are up; a reload drops it with the module. */
 let disarmTimer: Timer | undefined
@@ -173,7 +179,11 @@ function poll($: EngineInterface, options: Options): Promise<void> {
 async function pollOnce($: EngineInterface, options: Options): Promise<void> {
   const cache = await readCache($)
   if (isDue(cache, await $.clock.now(), await isPaneOpen($))) return refresh($, options)
-  if (cache && cache.fetchedAt !== shownFetchedAt) await show($, cache)
+  if (cache && cache.fetchedAt !== shownFetchedAt) {
+    const before = shownSnapshot
+    await show($, cache)
+    toastAlerts($, options, before)
+  }
 }
 
 /** Fetches now, or joins the fetch this session already has in flight. */
@@ -203,20 +213,26 @@ function track(fetch: Promise<void>): Promise<void> {
  * Fetches from GitHub, derives each pull request's Turn, label and Shipment with the domain
  * rules, and writes the snapshot to the shared cache (last writer wins) and shows it.
  *
- * The open pull requests and the merged ones are fetched side by side, and each list is written
- * as soon as it arrives: the slower merged fetch never holds back the Mine and Review tabs. A
- * failed fetch keeps its cached list; once both are done, the snapshot records the problem, if
- * any, and the cache counts the failure for the back-off.
+ * The open pull requests and the merged ones are fetched side by side, and each list is shown and
+ * written as soon as it arrives (a fetch with no cache before it writes once both are in): the
+ * slower merged fetch never holds back the Mine and Review tabs. A failed fetch keeps its cached list; once both are done, the
+ * snapshot records the problem, if any, the cache counts the failure for the back-off, and the
+ * session toasts the fetch's Alerts.
  */
 async function fetchIntoCache($: EngineInterface, options: Options): Promise<void> {
   const last = await readCache($)
   let shot: Snapshot = { ...EMPTY_SNAPSHOT, ...last?.snapshot }
+  // A session that has shown nothing yet tells this fetch apart from what its sessions last fetched.
+  const before = shownSnapshot ?? (last ? shot : undefined)
+  // With no cache before it, the snapshot holds both lists only once the fetch is done: written
+  // sooner, another session would take half a snapshot for a whole one.
+  let isWhole = last !== undefined
   const failuresBefore = last?.failures ?? 0
-  /** Applies `change` to this fetch's snapshot, writes it to the shared cache and shows it. */
+  /** Applies `change` to this fetch's snapshot, writes it to the shared cache once whole, and shows it. */
   const amend = async (change: (current: Snapshot) => Snapshot, failures = failuresBefore) => {
     shot = change(shot)
     const cache: SnapshotCache = { snapshot: shot, fetchedAt: await $.clock.now(), failures }
-    await $.store.set(CACHE_KEY, cache)
+    if (isWhole) await $.store.set(CACHE_KEY, cache)
     await show($, cache)
   }
   const results = await Promise.allSettled([
@@ -227,7 +243,9 @@ async function fetchIntoCache($: EngineInterface, options: Options): Promise<voi
     fetchMerged($, options).then(merged => amend(current => ({ ...current, ...merged }))),
   ])
   const failure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+  isWhole = true
   await amend(current => ({ ...current, problem: failure ? problemOf(failure.reason) : null }), failure ? failuresBefore + 1 : 0)
+  toastAlerts($, options, before)
 }
 
 /** The open pull requests' lists: My pull requests and Review requests with their Turn and label, and the teams. */
@@ -420,8 +438,21 @@ async function forgetUnlistedAnalyses($: EngineInterface, listed: PullRequestIte
 async function show($: EngineInterface, cache: SnapshotCache): Promise<void> {
   shownFetchedAt = cache.fetchedAt
   const shot: Snapshot = { ...EMPTY_SNAPSHOT, ...cache.snapshot }
+  shownSnapshot = shot
   await update($, snapshot, () => shot)
   $.ui.status(statusRow(shot))
+}
+
+/** How long an Alert's toast stays. */
+const ALERT_TIMEOUT_MS = 10_000
+
+/**
+ * Toasts the Alerts from `before` to the snapshot shown since, unless the Alerts setting is off;
+ * none when this session had shown nothing before.
+ */
+function toastAlerts($: EngineInterface, options: Options, before: Snapshot | undefined): void {
+  if (!options.alerts || !before || !shownSnapshot) return
+  for (const text of alertToasts(alertsBetween(before, shownSnapshot))) $.ui.toast(text, { timeoutMs: ALERT_TIMEOUT_MS })
 }
 
 /** Whether this session's panel is open, as the engine's pane list says. */

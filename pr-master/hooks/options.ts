@@ -11,6 +11,8 @@ export interface Options extends Visibility {
   reviewWindow: ReviewWindow
   /** How far back the Merged tab looks. */
   mergedWindow: MergedWindow
+  /** Whether the session raises Alerts. */
+  alerts: boolean
   /** The sensitive GitHub token, used only when `gh auth token` gives none; '' when unset. */
   githubToken: string
 }
@@ -20,6 +22,7 @@ export function readOptions(options: PluginOptions): Options {
     staleThreshold: options.staleThreshold as StaleThreshold,
     reviewWindow: options.reviewWindow as ReviewWindow,
     mergedWindow: options.mergedWindow as MergedWindow,
+    alerts: options.alerts !== false,
     githubToken: typeof options.githubToken === 'string' ? options.githubToken : '',
     hiddenOrgs: Array.isArray(options.hiddenOrgs) ? options.hiddenOrgs : [],
     showPrivate: options.showPrivate !== false,
