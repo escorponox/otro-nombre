@@ -86,6 +86,8 @@ Pressing the pull request's number opens it in the browser.
 
 Merge, update, close and approve write to GitHub, so each asks for confirmation: the first press arms the button, and a second press within three seconds runs it.
 
+Approve leaves a sarcastic comment on the approval, picked at random. The sarcasm aims at the reviewer, the process and CI, never at the author.
+
 ### Analyses
 
 An analysis runs Claude in the background, with read-only tools, on one pull request:

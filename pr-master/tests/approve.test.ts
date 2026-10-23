@@ -2,6 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 
+import { APPROVAL_COMMENTS } from '../hooks/domain/approval-comment'
 import { PLATFORM_SEARCH, SURFACES, actionRow, button, drawnItem, focus, mutations, openPanel, pullRequestNode } from './world'
 import type { Surface } from './world'
 
@@ -63,7 +64,8 @@ for (const surface of SURFACES) {
     expect(others).toEqual([])
     expect(approve?.query).toContain('addPullRequestReview')
     expect(approve?.query).toContain('APPROVE')
-    expect(approve?.variables).toEqual({ id: 'PR_41', headSha: 'c0ffee41' })
+    expect(approve?.variables).toMatchObject({ id: 'PR_41', headSha: 'c0ffee41' })
+    expect(APPROVAL_COMMENTS).toContain(approve?.variables.body)
     expect(whileApproving).toEqual([expect.stringContaining('Approving…')])
     expect(await drawnItem(ui, 'PR_41')).toMatchObject({ dot: 'success', meta: 'Approved already · by ana · 3d' })
     await ui.unmount()

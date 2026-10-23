@@ -1,4 +1,5 @@
 import type { PullRequestItem, WriteActionKind } from '../../types'
+import { approvalComment } from '../domain/approval-comment'
 
 /** A GraphQL mutation and its variables. */
 export interface WriteRequest {
@@ -20,9 +21,9 @@ const CLOSE = `mutation Close($id: ID!) {
   closePullRequest(input: { pullRequestId: $id }) { pullRequest { id } }
 }`
 
-/** Approve, pinned to the head commit the person saw: the approval is of exactly that commit. */
-const APPROVE = `mutation Approve($id: ID!, $headSha: GitObjectID!) {
-  addPullRequestReview(input: { pullRequestId: $id, event: APPROVE, commitOID: $headSha }) { pullRequestReview { id } }
+/** Approve with a comment, pinned to the head commit the person saw: the approval is of exactly that commit. */
+const APPROVE = `mutation Approve($id: ID!, $headSha: GitObjectID!, $body: String!) {
+  addPullRequestReview(input: { pullRequestId: $id, event: APPROVE, commitOID: $headSha, body: $body }) { pullRequestReview { id } }
 }`
 
 /** Every write action, as a record so the compiler asks for a new one here. */
@@ -46,6 +47,6 @@ export function writeRequestOf(kind: WriteActionKind, item: PullRequestItem): Wr
     case 'close':
       return { query: CLOSE, variables: { id: item.id } }
     case 'approve':
-      return { query: APPROVE, variables: { id: item.id, headSha: item.headSha } }
+      return { query: APPROVE, variables: { id: item.id, headSha: item.headSha, body: approvalComment() } }
   }
 }
