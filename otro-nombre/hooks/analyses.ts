@@ -14,12 +14,12 @@ const SUBAGENT_TYPE = 'Explore'
 const CONTINUE = 'continue'
 
 // The engine's scan only accepts atoms declared in the file that reads and writes them.
-const snapshot = atom({ plugin: 'pr-master', key: 'snapshot' } as const, EMPTY_SNAPSHOT)
+const snapshot = atom({ plugin: 'otro-nombre', key: 'snapshot' } as const, EMPTY_SNAPSHOT)
 /** Drawn on the refresh line by `pane.tsx`. */
-const actionProblem = atom({ plugin: 'pr-master', key: 'actionProblem' } as const, null as string | null)
-const analyses = atom({ plugin: 'pr-master', key: 'analyses' } as const, {} as Record<string, Analysis>)
-const analysing = atom({ plugin: 'pr-master', key: 'analysing' } as const, {} as Record<string, RunningAnalysis>)
-const handBacks = atom({ plugin: 'pr-master', key: 'handBacks' } as const, {} as Record<string, string>)
+const actionProblem = atom({ plugin: 'otro-nombre', key: 'actionProblem' } as const, null as string | null)
+const analyses = atom({ plugin: 'otro-nombre', key: 'analyses' } as const, {} as Record<string, Analysis>)
+const analysing = atom({ plugin: 'otro-nombre', key: 'analysing' } as const, {} as Record<string, RunningAnalysis>)
+const handBacks = atom({ plugin: 'otro-nombre', key: 'handBacks' } as const, {} as Record<string, string>)
 
 /**
  * The analyses: a press on an analysis action (see `ANALYSIS_ACTION`) starts a background subagent
@@ -32,7 +32,7 @@ const handBacks = atom({ plugin: 'pr-master', key: 'handBacks' } as const, {} as
  */
 export function registerAnalyses(on: On) {
   // Work after `next`: actions.ts clears the refresh line's problem on every press.
-  on('ui.press', { plugin: 'pr-master' }, async ($, e, next) => {
+  on('ui.press', { plugin: 'otro-nombre' }, async ($, e, next) => {
     const pressed = await next(e)
     const [action, id] = splitKey(e.element)
     const kind = analysisOfAction(action)
@@ -50,7 +50,7 @@ export function registerAnalyses(on: On) {
     return next(e)
   })
 
-  on('ui.open', { id: 'pr-master' }, async ($, e, next) => {
+  on('ui.open', { id: 'otro-nombre' }, async ($, e, next) => {
     const opened = await next(e)
     await readKeptAnalyses($)
     return opened

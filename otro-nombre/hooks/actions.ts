@@ -12,9 +12,9 @@ const OPEN_TIMEOUT_MS = 10_000
 type ListedItem = PullRequestItem | MergedPullRequestItem
 
 // The engine's scan only accepts atoms declared in the file that reads and writes them.
-const snapshot = atom({ plugin: 'pr-master', key: 'snapshot' } as const, EMPTY_SNAPSHOT)
+const snapshot = atom({ plugin: 'otro-nombre', key: 'snapshot' } as const, EMPTY_SNAPSHOT)
 /** Drawn on the refresh line by `pane.tsx`. */
-const actionProblem = atom({ plugin: 'pr-master', key: 'actionProblem' } as const, null as string | null)
+const actionProblem = atom({ plugin: 'otro-nombre', key: 'actionProblem' } as const, null as string | null)
 
 /**
  * The pull request actions. The pane draws each action's Button keyed `<kind>:<item id>` (see
@@ -24,7 +24,7 @@ const actionProblem = atom({ plugin: 'pr-master', key: 'actionProblem' } as cons
  * To add an action: add it to `ACTIONS` in `items.tsx` and a `case` for its kind below.
  */
 export function registerActions(on: On) {
-  on('ui.press', { plugin: 'pr-master' }, async ($, e, next) => {
+  on('ui.press', { plugin: 'otro-nombre' }, async ($, e, next) => {
     await update($, actionProblem, () => null)
     const [kind, id] = splitKey(e.element)
     const item = findItem(await read($, snapshot), id)

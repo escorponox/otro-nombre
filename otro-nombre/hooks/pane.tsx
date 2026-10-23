@@ -10,24 +10,24 @@ import type { ItemAnalysis } from './items'
 import { SHIPMENT_COLOUR, mergedItemRows, mergedPullRequestItem } from './merged-items'
 import { EMPTY_SNAPSHOT } from './snapshot'
 
-export const PANE_ID = 'pr-master'
-const PANE_TITLE = 'PR Master'
+export const PANE_ID = 'otro-nombre'
+const PANE_TITLE = 'Otro Nombre'
 
 // The engine's scan only accepts atoms declared in the file that reads and writes them.
-const tab = atom({ plugin: 'pr-master', key: 'tab' } as const, 'mine' as Tab)
-const legend = atom({ plugin: 'pr-master', key: 'legend' } as const, false)
+const tab = atom({ plugin: 'otro-nombre', key: 'tab' } as const, 'mine' as Tab)
+const legend = atom({ plugin: 'otro-nombre', key: 'legend' } as const, false)
 /** Written by `refresh.ts`. */
-const snapshot = atom({ plugin: 'pr-master', key: 'snapshot' } as const, EMPTY_SNAPSHOT)
-const listOffset = atom({ plugin: 'pr-master', key: 'listOffset' } as const, 0)
-const focused = atom({ plugin: 'pr-master', key: 'focused' } as const, null as string | null)
+const snapshot = atom({ plugin: 'otro-nombre', key: 'snapshot' } as const, EMPTY_SNAPSHOT)
+const listOffset = atom({ plugin: 'otro-nombre', key: 'listOffset' } as const, 0)
+const focused = atom({ plugin: 'otro-nombre', key: 'focused' } as const, null as string | null)
 /** Written by `actions.ts`. */
-const actionProblem = atom({ plugin: 'pr-master', key: 'actionProblem' } as const, null as string | null)
+const actionProblem = atom({ plugin: 'otro-nombre', key: 'actionProblem' } as const, null as string | null)
 /** Written by `refresh.ts`, which runs the write actions. */
-const armed = atom({ plugin: 'pr-master', key: 'armed' } as const, null as { element: string; at: number } | null)
-const progress = atom({ plugin: 'pr-master', key: 'progress' } as const, {} as Record<string, ActionProgress>)
+const armed = atom({ plugin: 'otro-nombre', key: 'armed' } as const, null as { element: string; at: number } | null)
+const progress = atom({ plugin: 'otro-nombre', key: 'progress' } as const, {} as Record<string, ActionProgress>)
 /** Written by `analyses.ts`. */
-const analyses = atom({ plugin: 'pr-master', key: 'analyses' } as const, {} as Record<string, Analysis>)
-const analysing = atom({ plugin: 'pr-master', key: 'analysing' } as const, {} as Record<string, RunningAnalysis>)
+const analyses = atom({ plugin: 'otro-nombre', key: 'analyses' } as const, {} as Record<string, Analysis>)
+const analysing = atom({ plugin: 'otro-nombre', key: 'analysing' } as const, {} as Record<string, RunningAnalysis>)
 
 /**
  * The body the pane was last drawn in. `ui.focus` carries no size, and drawing may not write
@@ -294,7 +294,7 @@ function refreshLine(shot: Snapshot): string {
 function refreshOutcome({ updatedAt, problem }: Snapshot): string {
   const lastUpdated = updatedAt === null ? '' : ` · last updated ${clockTime(updatedAt)}`
   if (problem?.kind === 'no-token') {
-    return "No GitHub token: run `gh auth login`, or set the GitHub token in pr-master's plugin options"
+    return "No GitHub token: run `gh auth login`, or set the GitHub token in otro-nombre's plugin options"
   }
   if (problem?.kind === 'failed') return `Couldn't refresh (${problem.reason})${lastUpdated}`
   return updatedAt === null ? 'Not refreshed yet' : `Updated ${clockTime(updatedAt)}`

@@ -1,5 +1,5 @@
 {
-  "name": "pr-master-mod",
+  "name": "otro-nombre",
   "owner": {
     "name": "Carlos Coves Prieto"
   },
@@ -8,8 +8,8 @@
   },
   "plugins": [
     {
-      "name": "pr-master",
-      "source": "./pr-master",
+      "name": "otro-nombre",
+      "source": "./otro-nombre",
       "description": "PR panel for Claude Code: your pull requests, review requests and merged pull requests, with whose Turn it is"
     }
   ]

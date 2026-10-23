@@ -4,8 +4,8 @@ import type { Engine, Mounted } from 'claude-code/testing'
 
 import type { Analysis, AnalysisKind, Tab } from '../types'
 
-export const PLUGIN = 'pr-master'
-export const PANE_ID = 'pr-master'
+export const PLUGIN = 'otro-nombre'
+export const PANE_ID = 'otro-nombre'
 export const SURFACES = ['terminal', 'desktop'] as const
 
 /** A surface the pane is mounted on. */
@@ -23,7 +23,7 @@ export function paneMount(surface: Surface, bodyRows = 40) {
     surface,
     component: 'Pane',
     requestId: PANE_ID,
-    props: { title: 'PR Master', isFocused: true, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows }, view: {} },
+    props: { title: 'Otro Nombre', isFocused: true, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows }, view: {} },
   } as const
 }
 

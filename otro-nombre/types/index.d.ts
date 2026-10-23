@@ -150,7 +150,7 @@ export interface RunningAnalysis {
 
 declare module 'claude-code' {
   interface PluginState {
-    'pr-master': {
+    'otro-nombre': {
       /** The tab the panel shows. */
       tab: Tab
       /** Whether the colour legend is shown. */

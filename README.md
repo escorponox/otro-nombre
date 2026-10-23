@@ -1,4 +1,6 @@
-# PR Master
+# Otro Nombre
+
+*Formerly PR Master, renamed by referee decision.* 🟨
 
 A Claude Code mod that shows your pull requests, the ones your teams must review and the ones you merged, from opening to production, and tells you whose **Turn** it is on each. You can act on them, or ask Claude to analyse them, without leaving the session.
 
@@ -15,21 +17,21 @@ A Claude Code mod that shows your pull requests, the ones your teams must review
 At the prompt of a Claude Code terminal session, type:
 
 ```
-/plugin install pr-master --marketplace escorponox/pr-master-mod
+/plugin install otro-nombre --marketplace escorponox/otro-nombre
 ```
 
 Then:
 
-1. Answer `y` to add the `github:escorponox/pr-master-mod` marketplace.
+1. Answer `y` to add the `github:escorponox/otro-nombre` marketplace.
 2. Choose a scope; the user scope, first in the list, loads the mod in every session.
 3. Set the options (see [Settings](#settings)) or keep the defaults.
 
-Claude Code answers `Installed pr-master. Plugin is now active.` and the mod runs in that session straight away.
+Claude Code answers `Installed otro-nombre. Plugin is now active.` and the mod runs in that session straight away.
 
 To get a newer version later:
 
 ```
-claude plugin update pr-master@pr-master-mod
+claude plugin update otro-nombre@otro-nombre
 ```
 
 then run `/reload-plugins` in an open session, or start a new one.
@@ -116,7 +118,7 @@ The Merged tab follows each pull request through CI, its release, staging and pr
 
 ## Settings
 
-Set them on install, or later with `claude plugin configure pr-master@pr-master-mod`, which also shows the ones left unset.
+Set them on install, or later with `claude plugin configure otro-nombre@otro-nombre`, which also shows the ones left unset.
 
 | Setting | Values | Default | What it does |
 | --- | --- | --- | --- |
@@ -133,14 +135,14 @@ Set them on install, or later with `claude plugin configure pr-master@pr-master-
 Run a session with the mod loaded from this working copy; saving a file reloads it:
 
 ```
-claude --plugin-dir ./pr-master
+claude --plugin-dir ./otro-nombre
 ```
 
 Check and test it:
 
 ```
 claude plugin validate .
-claude plugin test ./pr-master
+claude plugin test ./otro-nombre
 ```
 
 Domain terms are defined in [GLOSSARY.md](GLOSSARY.md).

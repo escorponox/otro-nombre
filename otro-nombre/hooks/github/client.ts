@@ -28,7 +28,7 @@ export function graphqlRequest(token: string, query: string, variables: Record<s
     url: 'https://api.github.com/graphql',
     init: {
       method: 'POST',
-      headers: { Authorization: `bearer ${token}`, 'Content-Type': 'application/json', 'User-Agent': 'pr-master' },
+      headers: { Authorization: `bearer ${token}`, 'Content-Type': 'application/json', 'User-Agent': 'otro-nombre' },
       body: JSON.stringify({ query, variables }),
     },
   }
@@ -40,7 +40,7 @@ export function restRequest(token: string, path: string): { url: string; init: H
     url: `https://api.github.com${path}`,
     init: {
       method: 'GET',
-      headers: { Authorization: `bearer ${token}`, Accept: 'application/vnd.github+json', 'User-Agent': 'pr-master' },
+      headers: { Authorization: `bearer ${token}`, Accept: 'application/vnd.github+json', 'User-Agent': 'otro-nombre' },
     },
   }
 }

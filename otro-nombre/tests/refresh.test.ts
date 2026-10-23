@@ -62,7 +62,7 @@ for (const surface of SURFACES) {
     const ui = await $.ui.mount(paneMount(surface))
 
     expect(gh.requests).toEqual([])
-    expect(await footer(ui)).toBe("No GitHub token: run `gh auth login`, or set the GitHub token in pr-master's plugin options")
+    expect(await footer(ui)).toBe("No GitHub token: run `gh auth login`, or set the GitHub token in otro-nombre's plugin options")
     expect((await ui.find({ key: 'tab:mine' }))?.text).toBe('Mine 0')
     await ui.unmount()
   })

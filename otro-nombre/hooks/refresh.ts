@@ -87,10 +87,10 @@ const STABLE_VERSIONS_KEY = 'stable-versions'
 const ANCESTRY_KEY = 'ancestry'
 
 // The engine's scan only accepts atoms declared in the file that reads and writes them.
-const snapshot = atom({ plugin: 'pr-master', key: 'snapshot' } as const, EMPTY_SNAPSHOT)
+const snapshot = atom({ plugin: 'otro-nombre', key: 'snapshot' } as const, EMPTY_SNAPSHOT)
 /** Drawn by `pane.tsx`. */
-const armed = atom({ plugin: 'pr-master', key: 'armed' } as const, null as { element: string; at: number } | null)
-const progress = atom({ plugin: 'pr-master', key: 'progress' } as const, {} as Record<string, ActionProgress>)
+const armed = atom({ plugin: 'otro-nombre', key: 'armed' } as const, null as { element: string; at: number } | null)
+const progress = atom({ plugin: 'otro-nombre', key: 'progress' } as const, {} as Record<string, ActionProgress>)
 
 /**
  * The token, obtained once per module load. A module variable is fine here: it is never drawn,
@@ -135,20 +135,20 @@ export function registerRefresh(on: On, options: Options) {
     return started
   })
 
-  on('ui.open', { id: 'pr-master' }, async ($, e, next) => {
+  on('ui.open', { id: 'otro-nombre' }, async ($, e, next) => {
     const opened = await next(e)
     void poll($, options)
     return opened
   })
 
-  on('ui.press', { plugin: 'pr-master', element: 'refresh' }, async ($, e, next) => {
+  on('ui.press', { plugin: 'otro-nombre', element: 'refresh' }, async ($, e, next) => {
     void refresh($, options)
     return next(e)
   })
 
   // The Review tab's team switches, keyed `team:<org/team>`, and the write actions on a pull
   // request, keyed `<kind>:<item id>` (see `pressWriteAction`).
-  on('ui.press', { plugin: 'pr-master' }, async ($, e, next) => {
+  on('ui.press', { plugin: 'otro-nombre' }, async ($, e, next) => {
     const [kind, id] = splitKey(e.element)
     if (kind === TEAM_SWITCH) {
       await pressTeamSwitch($, options, e.element, id)
@@ -161,7 +161,7 @@ export function registerRefresh(on: On, options: Options) {
 
   // A focus move disarms the armed write action. pane.tsx hooks `ui.focus` on `{ requestId }`;
   // this matcher keeps the two hooks apart.
-  on('ui.focus', { component: 'Pane', requestId: 'pr-master' }, async ($, e, next) => {
+  on('ui.focus', { component: 'Pane', requestId: 'otro-nombre' }, async ($, e, next) => {
     const held = await read($, armed)
     if (held && held.element !== e.element) await disarm($)
     return next(e)
