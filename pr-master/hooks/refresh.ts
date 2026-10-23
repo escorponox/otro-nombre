@@ -10,10 +10,11 @@ import type {
   TeamSwitch,
   WriteActionKind,
 } from '../types'
-import { alertToasts, alertsBetween } from './domain/alerts'
+import { alertToasts, alertsBetween, autoApprovalAlert } from './domain/alerts'
 import { ancestryKey, ancestryToKeep, isSameAncestry, keptAncestryOf } from './domain/ancestry'
 import type { KeptAncestry } from './domain/ancestry'
 import { unlistedAnalysisKeys } from './domain/analysis'
+import { handledOf, isAutoApprovable, notHandled, withHandled } from './domain/auto-approval'
 import { ARM_MS, pressOf } from './domain/confirmation'
 import { toItem } from './domain/item'
 import { TEAM_SWITCH, splitKey } from './domain/element-key'
@@ -70,6 +71,10 @@ const POLL_TICK_MS = 15_000
 
 /** The `$.store` key of the teams the person switched off (`org/team` list). */
 const TEAMS_OFF = 'teamsOff'
+/** The `$.store` key of the teams the person turned to Auto-approval (`org/team` list). */
+const AUTO_TEAMS = 'autoApprovalTeams'
+/** The `$.store` key of the Review requests the Auto-approvals dealt with (see `HandledAutoApprovals`). */
+const AUTO_HANDLED = 'autoApprovals'
 
 /**
  * The `$.store` key of each repo's discovered app folders in the deployments repos, the org's
@@ -146,7 +151,7 @@ export function registerRefresh(on: On, options: Options) {
   on('ui.press', { plugin: 'pr-master' }, async ($, e, next) => {
     const [kind, id] = splitKey(e.element)
     if (kind === TEAM_SWITCH) {
-      await switchTeam($, options, id)
+      await pressTeamSwitch($, options, e.element, id)
     } else {
       const item = findOpenItem(await read($, snapshot), id)
       if (item && isWriteAction(kind)) await pressWriteAction($, options, e.element, kind, item, writeRequestOf(kind, item))
@@ -236,9 +241,10 @@ async function fetchIntoCache($: EngineInterface, options: Options): Promise<voi
     await show($, cache)
   }
   const results = await Promise.allSettled([
-    fetchOpen($, options).then(async lists => {
+    fetchOpen($, options).then(async ({ autoApprovable, ...lists }) => {
       await amend(current => ({ ...current, ...lists }))
       await forgetUnlistedAnalyses($, [...lists.mine, ...lists.review])
+      await autoApprove($, options, autoApprovable)
     }),
     fetchMerged($, options).then(merged => amend(current => ({ ...current, ...merged }))),
   ])
@@ -248,14 +254,20 @@ async function fetchIntoCache($: EngineInterface, options: Options): Promise<voi
   toastAlerts($, options, before)
 }
 
-/** The open pull requests' lists: My pull requests and Review requests with their Turn and label, and the teams. */
-async function fetchOpen($: EngineInterface, options: Options): Promise<Pick<Snapshot, 'mine' | 'review' | 'teams' | 'updatedAt'>> {
+/**
+ * The open pull requests' lists: My pull requests and Review requests with their Turn and label,
+ * and the teams; and the Review requests that qualify for an Auto-approval.
+ */
+async function fetchOpen(
+  $: EngineInterface,
+  options: Options,
+): Promise<Pick<Snapshot, 'mine' | 'review' | 'teams' | 'updatedAt'> & { autoApprovable: PullRequestItem[] }> {
   const data = await graphql<OpenPullRequestsSearchData>($, options, OPEN_PULL_REQUESTS_SEARCH, { q: MY_PULL_REQUESTS })
   const prs = await withThreads($, options, visibleOnly(openPullRequestsOf(data), options))
-  const { review, teams } = await reviewRequests($, options)
+  const { review, teams, autoApprovable } = await reviewRequests($, options)
   const now = await $.clock.now()
   const mine = prs.map(pr => toItem(pr, readiness(pr), now, options.staleThreshold))
-  return { mine, review, teams, updatedAt: now }
+  return { mine, review, teams, autoApprovable, updatedAt: now }
 }
 
 /**
@@ -467,37 +479,107 @@ async function readCache($: EngineInterface): Promise<SnapshotCache | undefined>
 
 /**
  * The Review requests of the person's teams switched on, plus their dismissed approvals, with
- * every team's switch and count. Two queries: the teams, then every team's search at once.
+ * every team's switch and count, and the ones that qualify for an Auto-approval. Two queries: the
+ * teams, then every team's search at once.
  */
-async function reviewRequests($: EngineInterface, options: Options): Promise<{ review: PullRequestItem[]; teams: TeamSwitch[] }> {
-  const off = await teamsOff($)
+async function reviewRequests(
+  $: EngineInterface,
+  options: Options,
+): Promise<{ review: PullRequestItem[]; teams: TeamSwitch[]; autoApprovable: PullRequestItem[] }> {
+  const off = await teamList($, TEAMS_OFF)
+  const auto = await teamList($, AUTO_TEAMS)
   const teamsData = await graphql<ViewerTeamsData>($, options, VIEWER_TEAMS, {})
-  const teams = teamsOf(teamsData, options).map(slug => ({ slug, isOn: !off.includes(slug) }))
+  const teams = teamsOf(teamsData, options).map(slug => {
+    const isOn = !off.includes(slug)
+    return { slug, isOn, isAuto: isOn && auto.includes(slug) }
+  })
   const now = await $.clock.now()
   const search = reviewRequestsQuery(teams, reviewWindowStart(now, options.reviewWindow), options)
   const data = await graphql<ReviewRequestsData>($, options, search.query, search.variables)
   const { requests, counts } = reviewRequestsOf(data, teams)
+  const visible = visibleOnly(requests, options)
+  const review = visible.map(pr => toItem(pr, reviewState(pr), now, options.staleThreshold))
+  const autoTeams = teams.filter(team => team.isAuto).map(team => team.slug)
+  const approvable = new Set(visible.filter(pr => isAutoApprovable(pr, autoTeams)).map(pr => pr.id))
   return {
-    review: visibleOnly(requests, options).map(pr => toItem(pr, reviewState(pr), now, options.staleThreshold)),
+    review,
     teams: teams.map((team, index) => ({ ...team, count: counts[index] ?? 0 })),
+    autoApprovable: review.filter(item => approvable.has(item.id)),
   }
 }
 
-/** The teams the person switched off, from the store shared by every session; any other team is on. */
-async function teamsOff($: EngineInterface): Promise<string[]> {
-  const stored = await $.store.get(TEAMS_OFF)
+/** A list of teams (`org/team`) from the store shared by every session: the ones switched off, or turned to Auto-approval. */
+async function teamList($: EngineInterface, key: typeof TEAMS_OFF | typeof AUTO_TEAMS): Promise<string[]> {
+  const stored = await $.store.get(key)
   return Array.isArray(stored) ? stored.filter(slug => typeof slug === 'string') : []
 }
 
-/** Switches a team on or off for every session, shows the switch at once, and refreshes the lists. */
-async function switchTeam($: EngineInterface, options: Options, slug: string): Promise<void> {
-  const off = await teamsOff($)
-  await $.store.set(TEAMS_OFF, off.includes(slug) ? off.filter(other => other !== slug) : [...off, slug])
+/** Where a team switch stands: off, on, or on with Auto-approval. */
+type TeamMode = 'off' | 'on' | 'auto'
+
+/**
+ * A press on a team switch, keyed `team:<org/team>`: off turns on, Auto-approval turns off, and on
+ * arms the switch (`pane.tsx` draws it with "auto?"). A second press within `ARM_MS` turns it to
+ * Auto-approval; none switches it off when the three seconds are up, so that switching a team off
+ * never passes through Auto-approval. A focus move or another press disarms it, leaving it on.
+ */
+async function pressTeamSwitch($: EngineInterface, options: Options, element: string, slug: string): Promise<void> {
+  const team = (await read($, snapshot)).teams.find(each => each.slug === slug)
+  if (!team) return
+  if (!team.isOn) return setTeamMode($, options, slug, 'on')
+  if (team.isAuto) return setTeamMode($, options, slug, 'off')
+  const now = await $.clock.now()
+  if (pressOf(await read($, armed), element, now) === 'arm') {
+    disarmTimer?.cancel()
+    await update($, armed, () => ({ element, at: now }))
+    disarmTimer = $.clock.after(ARM_MS, () => void disarm($).then(() => setTeamMode($, options, slug, 'off')))
+    return
+  }
+  await disarm($)
+  await setTeamMode($, options, slug, 'auto')
+}
+
+/**
+ * Sets a team switch for every session, shows it at once, and refreshes the lists. Turning a team to
+ * Auto-approval leaves alone the Review requests listed then, at their current commits: it covers
+ * only what arrives after.
+ */
+async function setTeamMode($: EngineInterface, options: Options, slug: string, mode: TeamMode): Promise<void> {
+  const without = (teams: string[]) => teams.filter(other => other !== slug)
+  const off = without(await teamList($, TEAMS_OFF))
+  const auto = without(await teamList($, AUTO_TEAMS))
+  await $.store.set(TEAMS_OFF, mode === 'off' ? [...off, slug] : off)
+  await $.store.set(AUTO_TEAMS, mode === 'auto' ? [...auto, slug] : auto)
+  if (mode === 'auto') {
+    const handled = handledOf(await $.store.get(AUTO_HANDLED))
+    await $.store.set(AUTO_HANDLED, withHandled(handled, (await read($, snapshot)).review, await $.clock.now()))
+  }
   await update($, snapshot, shot => ({
     ...shot,
-    teams: shot.teams.map(team => (team.slug === slug ? { ...team, isOn: !team.isOn } : team)),
+    teams: shot.teams.map(team => (team.slug === slug ? { ...team, isOn: mode !== 'off', isAuto: mode === 'auto' } : team)),
   }))
   void refresh($, options)
+}
+
+/**
+ * Gives an Auto-approval to each of `prs` at a commit no session has dealt with yet: it records them
+ * as handled first, so that no other session approves them again, nor this one after a failure; a
+ * failure shows on the item as a refused approval does. Each approval raises an Alert, unless the
+ * Alerts setting is off; the lists are then fetched anew.
+ */
+async function autoApprove($: EngineInterface, options: Options, prs: PullRequestItem[]): Promise<void> {
+  const handled = handledOf(await $.store.get(AUTO_HANDLED))
+  const due = notHandled(prs, handled)
+  if (due.length === 0) return
+  await $.store.set(AUTO_HANDLED, withHandled(handled, due, await $.clock.now()))
+  const approved: PullRequestItem[] = []
+  for (const item of due) {
+    if (await sendWriteAction($, options, 'approve', item, writeRequestOf('approve', item))) approved.push(item)
+  }
+  if (options.alerts) {
+    for (const text of alertToasts(approved.map(autoApprovalAlert))) $.ui.toast(text, { timeoutMs: ALERT_TIMEOUT_MS })
+  }
+  void refreshAnew($, options)
 }
 
 /**
@@ -530,15 +612,28 @@ async function pressWriteAction(
 
 /** Runs a confirmed write action, shows its progress on the item, then refreshes the lists. */
 async function runWriteAction($: EngineInterface, options: Options, kind: WriteActionKind, item: PullRequestItem, request: WriteRequest) {
+  await sendWriteAction($, options, kind, item, request)
+  await refreshAnew($, options)
+}
+
+/** Sends a write action's mutation and shows its progress on the item; answers whether GitHub took it. */
+async function sendWriteAction(
+  $: EngineInterface,
+  options: Options,
+  kind: WriteActionKind,
+  item: PullRequestItem,
+  request: WriteRequest,
+): Promise<boolean> {
   const show = (shown: ActionProgress) => update($, progress, all => ({ ...all, [item.id]: shown }))
   await show({ kind, phase: 'running' })
   try {
     await graphql($, options, request.query, request.variables)
     await show({ kind, phase: 'done' })
+    return true
   } catch (error) {
     await show({ kind, phase: 'failed', problem: messageOf(error) })
+    return false
   }
-  await refreshAnew($, options)
 }
 
 async function disarm($: EngineInterface): Promise<void> {

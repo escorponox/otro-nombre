@@ -26,6 +26,11 @@ export function alertsBetween(before: Snapshot, after: Snapshot): Alert[] {
   ]
 }
 
+/** The Alert of an Auto-approval the session gave `pr`. */
+export function autoApprovalAlert(pr: Named): Alert {
+  return { number: pr.number, repo: pr.repo, what: 'Auto-approved' }
+}
+
 /** The most Alerts told in a toast each; past it, one toast sums them up. */
 const MOST_SEPARATE_TOASTS = 3
 

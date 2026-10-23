@@ -100,7 +100,7 @@ for (const surface of SURFACES) {
     await ui.unmount()
   })
 
-  test(`each team shows its switch with its count, and switching one off drops its requests and keeps counting it (${surface})`, async ($, on) => {
+  test(`each team shows its switch with its count, and switching one off (a press left unconfirmed) drops its requests and keeps counting it (${surface})`, async ($, on) => {
     const clock = mock.clock(on, { now: NOW })
     const w = world(on)
     const gh = github(on)
@@ -117,7 +117,10 @@ for (const surface of SURFACES) {
     expect((await ui.find({ key: 'team:acme/infra' }))?.text).toBe('[x] acme/infra 1')
     expect((await ui.find({ key: 'tab:review' }))?.text).toBe('Review 3')
 
+    // On, a press asks "auto?"; left unanswered for 3 s, the team switches off.
     await ui.press({ key: 'team:acme/platform' })
+    expect((await ui.find({ key: 'team:acme/platform' }))?.text).toBe('[x] acme/platform 2 · auto?')
+    await clock.advance(3000)
     await clock.settle()
     expect(w.store.get('teamsOff')).toEqual(['acme/platform'])
     expect(reviewSearches(gh.requests)).toContainEqual({ q: teamSearch('acme/platform'), first: 0 })

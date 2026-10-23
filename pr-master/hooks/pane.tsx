@@ -129,16 +129,19 @@ export function registerPane(on: On) {
       </Box>
     )
 
-    // The Review tab's team switches; refresh.ts answers their presses (it hooks `ui.press` on `team:` keys).
-    // Buttons apart by a drawn space, not `gap`, which leaves stale cells.
+    // The Review tab's team switches, one a row; refresh.ts answers their presses (it hooks `ui.press` on `team:` keys).
     const teamSwitches = (
-      <Box key="teams" flexDirection="row" flexWrap="wrap">
-        {shot.teams.flatMap((team, index) => [
-          ...(index > 0 ? [<Text key={`teams:space:${team.slug}`}> </Text>] : []),
-          <Button key={`${TEAM_SWITCH}:${team.slug}`} variant={team.isOn ? 'primary' : undefined} onPress={() => undefined}>
-            {teamLabel(team)}
-          </Button>,
-        ])}
+      <Box key="teams" flexDirection="column">
+        {shot.teams.map(team => {
+          const key = `${TEAM_SWITCH}:${team.slug}`
+          return (
+            <Box key={`teams:row:${team.slug}`} flexDirection="row">
+              <Button key={key} variant={team.isOn ? 'primary' : undefined} onPress={() => undefined}>
+                {teamLabel(team, armedElement === key)}
+              </Button>
+            </Box>
+          )
+        })}
       </Box>
     )
 
@@ -227,7 +230,7 @@ function registerListScroll(on: On) {
                 analysis: analysisOf(item),
               }),
             )
-      const rows = listRows(lastBody, isLegendShown, footerLine(shot, await read($, actionProblem)), teamSwitchesLine(shot, shown))
+      const rows = listRows(lastBody, isLegendShown, footerLine(shot, await read($, actionProblem)), teamSwitchesLines(shot, shown))
       await update($, listOffset, offset => offsetShowing(index, { offset: clampOffset(offset, items.length), heights, rows }))
     }
     return next(e)
@@ -246,8 +249,8 @@ const GAP_ROWS = 1
  * The rows the list box gets in a body: what the fixed block (header, legend, tabs, team switches),
  * the refresh line and the blank lines between them leave.
  */
-function listRows(body: { rows: number; columns: number }, isLegendShown: boolean, footer: string, teamSwitches: string): number {
-  const teamRows = teamSwitches === '' ? 0 : GAP_ROWS + wrappedRows(teamSwitches, body.columns)
+function listRows(body: { rows: number; columns: number }, isLegendShown: boolean, footer: string, teamSwitches: string[]): number {
+  const teamRows = teamSwitches.length === 0 ? 0 : GAP_ROWS + teamSwitches.reduce((rows, line) => rows + wrappedRows(line, body.columns), 0)
   const fixed = HEADER_ROWS + GAP_ROWS + (isLegendShown ? LEGEND_ROWS + GAP_ROWS : 0) + TABS_ROWS + teamRows
   return body.rows - fixed - GAP_ROWS - GAP_ROWS - wrappedRows(footer, body.columns)
 }
@@ -262,14 +265,18 @@ function openListOf(shot: Snapshot, id: Exclude<Tab, 'merged'>): readonly PullRe
   return id === 'mine' ? shot.mine : shot.review
 }
 
-/** The team switches' line as drawn in the shown tab, to measure it; '' when not drawn. */
-function teamSwitchesLine(shot: Snapshot, shown: Tab): string {
-  return shown === 'review' ? shot.teams.map(teamLabel).join(' ') : ''
+/** The team switches' lines as drawn in the shown tab, one a team, to measure them (as if armed, to err tall); none when not drawn. */
+function teamSwitchesLines(shot: Snapshot, shown: Tab): string[] {
+  return shown === 'review' ? shot.teams.map(team => teamLabel(team, true)) : []
 }
 
-/** A team switch's label: whether it is on, the team and its count. */
-function teamLabel(team: TeamSwitch): string {
-  return `${team.isOn ? '[x]' : '[ ]'} ${team.slug} ${team.count}`
+/**
+ * A team switch's label: whether it is off `[ ]`, on `[x]` or on with Auto-approval `[A]`, the
+ * team and its count; armed, it asks "auto?".
+ */
+function teamLabel(team: TeamSwitch, isArmed: boolean): string {
+  const box = team.isAuto ? '[A]' : team.isOn ? '[x]' : '[ ]'
+  return `${box} ${team.slug} ${team.count}${isArmed ? ' · auto?' : ''}`
 }
 
 /** The refresh line: the last action's failure, if any, then how the last refresh went. */

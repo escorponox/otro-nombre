@@ -112,15 +112,20 @@ interface SearchResult {
 export type ReviewRequestsData = Record<string, SearchResult>
 
 /**
- * The Review requests of an answer, each listed once (team requests first, in their teams' order),
- * and each team's count as GitHub gives it. A dismissed approval is listed unless every one of the
- * person's teams asked to review it is switched off.
+ * The Review requests of an answer, each listed once (team requests first, in their teams' order)
+ * with every team it was found asked of, and each team's count as GitHub gives it. A dismissed
+ * approval is listed unless every one of the person's teams asked to review it is switched off.
  */
 export function reviewRequestsOf(data: ReviewRequestsData, teams: readonly Team[]): { requests: ReviewRequest[]; counts: number[] } {
-  const fromTeams = teams.flatMap((team, index) => pullRequestsOf(data[teamAlias(index)]))
+  const fromTeams = teams.flatMap((team, index) =>
+    pullRequestsOf(data[teamAlias(index)]).map(pr => ({ ...pr, requestedTeams: [team.slug] })),
+  )
   const dismissed = pullRequestsOf(data.dismissed).filter(pr => pr.myReview === 'DISMISSED' && !isAskedOnlyOfTeamsOff(pr, teams))
   const byId = new Map<string, ReviewRequest>()
-  for (const pr of [...fromTeams, ...dismissed]) if (!byId.has(pr.id)) byId.set(pr.id, pr)
+  for (const pr of [...fromTeams, ...dismissed]) {
+    const listed = byId.get(pr.id)
+    byId.set(pr.id, listed ? { ...listed, requestedTeams: [...new Set([...listed.requestedTeams, ...pr.requestedTeams])] } : pr)
+  }
   return { requests: [...byId.values()], counts: teams.map((team, index) => data[teamAlias(index)]?.issueCount ?? 0) }
 }
 

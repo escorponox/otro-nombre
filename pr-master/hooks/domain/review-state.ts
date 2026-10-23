@@ -8,7 +8,7 @@ export type ReviewStateOnGitHub = 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED'
 export interface ReviewRequest extends OpenPullRequest {
   /** The person's latest review of it; null when they have not reviewed it. */
   myReview: ReviewStateOnGitHub | null
-  /** The teams asked to review it (`org/team`), as far as its timeline tells; empty when not read. */
+  /** The teams asked to review it (`org/team`): the team searches it was found in, and for a dismissed approval its timeline. */
   requestedTeams: string[]
 }
 

@@ -45,7 +45,7 @@ The panel has three tabs:
 | Tab | Key | What it lists |
 | --- | --- | --- |
 | Mine | `1` | Your open pull requests, with their Readiness, from Draft to Ready to merge |
-| Review | `2` | Open, non-draft pull requests by others where one of your teams is asked to review and you have not reviewed yet. Team switches under the tabs show or hide each team's requests |
+| Review | `2` | Open, non-draft pull requests by others where one of your teams is asked to review and you have not reviewed yet. Team switches under the tabs, one team a row, show or hide each team's requests, or turn on its [Auto-approval](#auto-approval) |
 | Merged | `3` | Your pull requests merged within the merged window, followed through CI, release, staging and production |
 
 Other keys in the panel:
@@ -62,7 +62,8 @@ While the session is open, a toast tells you when one of your pull requests:
 - needs you: its **Turn** became **Mine**, a new Review request included;
 - became Ready to merge;
 - reached production;
-- failed CI after merging.
+- failed CI after merging;
+- got an [Auto-approval](#auto-approval), for example `#123 api · Auto-approved` (only the session that gave it raises it).
 
 Each toast says the pull request's number, its repository and what it became, for example `#123 api · Changes requested`, and stays ten seconds. More than three at once come as one toast, for example `5 Alerts · /prs`. Clicking a toast only closes it: open `/prs` to act on the pull request.
 
@@ -87,6 +88,18 @@ Pressing the pull request's number opens it in the browser.
 Merge, update, close and approve write to GitHub, so each asks for confirmation: the first press arms the button, and a second press within three seconds runs it.
 
 Approve leaves a sarcastic comment on the approval, picked at random. The sarcasm aims at the reviewer, the process and CI, never at the author.
+
+### Auto-approval
+
+A team switch in the Review tab has three states: `[ ]` off, `[x]` on and `[A]` on with Auto-approval. A press on `[ ]` switches the team on. A press on `[x]` asks `auto?`: a second press within three seconds turns it to `[A]`, and none switches the team off. A press on `[A]` switches the team off. The switches are shared by all your sessions.
+
+With `[A]`, the mod approves for you, with the same sarcastic comments as Approve, every Review request asked of that team (of at least one, when it is asked of several of yours) once:
+
+- its checks pass (a commit with no checks never does);
+- no one has requested changes;
+- it arrived after you turned the team to `[A]`: a request made, or a commit pushed, since then. What was listed at that moment is left to you.
+
+A new commit that dismisses the approval gets a new one, on the same conditions. Each commit is approved at most once, across all your sessions; one GitHub refuses shows on the pull request and is not tried again until the next commit. Auto-approvals happen only while a Claude Code session of yours is open.
 
 ### Analyses
 

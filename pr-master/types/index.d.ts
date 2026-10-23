@@ -84,6 +84,8 @@ export interface TeamSwitch {
   slug: string
   /** Whether its Review requests are listed. */
   isOn: boolean
+  /** Whether its Review requests get Auto-approvals; only while it is on. */
+  isAuto: boolean
   /** Its Review requests as GitHub counts them, whether switched on or off. */
   count: number
 }
@@ -166,8 +168,9 @@ declare module 'claude-code' {
       /** Why the last pull request action (open, copy) failed, shown on the refresh line; null when it did not or the person pressed on since. */
       actionProblem: string | null
       /**
-       * The write action Button waiting for its confirming press: its key and when it was armed.
-       * Disarmed after three seconds, by a focus move, or by any other write action's press.
+       * The write action Button, or the team switch turning to Auto-approval, waiting for its
+       * confirming press: its key and when it was armed. Disarmed after three seconds, by a focus
+       * move, or by any other such press.
        */
       armed: { element: string; at: number } | null
       /** Each pull request's last write action, by node id, until another write action on it runs. */
